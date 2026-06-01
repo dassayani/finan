@@ -153,17 +153,25 @@ function DenseRow({
   onTogglePaid: () => void;
 }) {
   const cat = tx.category ? CATEGORIES[tx.category as CategoryKey] : null;
+  const [showNote, setShowNote] = useState(false);
+
   return (
+    <div style={{ borderBottom: last ? "none" : "1px solid var(--line-2)" }}>
     <div
       style={{
         display: "grid", gridTemplateColumns: "1fr auto auto auto", alignItems: "center", gap: 10,
-        padding: "8px 16px", borderBottom: last ? "none" : "1px solid var(--line-2)", fontSize: 13,
+        padding: "8px 16px", fontSize: 13,
       }}
     >
       <div style={{ display: "flex", alignItems: "center", gap: 9, minWidth: 0 }}>
         <span style={{ width: 7, height: 7, borderRadius: "50%", background: cat?.color ?? "var(--ink-3)", flex: "0 0 auto" }} />
         <span className="row-name" style={{ fontWeight: 600 }}>{tx.description}</span>
         {cat && <span className="row-meta" style={{ flex: "0 0 auto" }}>{cat.label}</span>}
+        {tx.notes && (
+          <button onClick={() => setShowNote(v => !v)} title="Ver observação" style={{ background: "none", border: "none", cursor: "pointer", color: showNote ? "var(--warn)" : "var(--ink-3)", padding: "0 2px", display: "flex", alignItems: "center" }}>
+            <OrcaIcon name="edit" size={12} />
+          </button>
+        )}
       </div>
 
       <button
@@ -188,6 +196,13 @@ function DenseRow({
           <OrcaIcon name="dots" size={14} />
         </button>
       </div>
+    </div>
+    {showNote && tx.notes && (
+      <div style={{ padding: "6px 16px 10px 32px", fontSize: 12, color: "var(--warn)", fontWeight: 600, background: "var(--warn-soft)", display: "flex", gap: 6, alignItems: "flex-start" }}>
+        <OrcaIcon name="edit" size={12} style={{ flex: "0 0 auto", marginTop: 1 }} />
+        <span>{tx.notes}</span>
+      </div>
+    )}
     </div>
   );
 }

@@ -21,6 +21,7 @@ model User {
   subscriptions Subscription[]
   investments   Investment[]
   salaries      Salary[]
+  bankFees      BankFee[]
 
   @@map("users")
 }
@@ -185,6 +186,21 @@ model SubscriptionMember {
   subscription   Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
 
   @@map("subscription_members")
+}
+
+// Bank fees configured once, applied automatically each month
+model BankFee {
+  id         String   @id @default(cuid())
+  userId     String   @map("user_id")
+  bank       BankKey
+  name       String
+  amount     Decimal  @db.Decimal(12, 2)
+  billingDay Int      @default(1) @map("billing_day")
+  active     Boolean  @default(true)
+  createdAt  DateTime @default(now()) @map("created_at")
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("bank_fees")
 }
 
 model Investment {
