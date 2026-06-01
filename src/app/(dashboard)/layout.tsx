@@ -8,11 +8,11 @@ export default async function DashboardLayout({ children }: { children: React.Re
   if (!session) redirect("/login");
 
   return (
-    <div className="flex h-screen overflow-hidden bg-gray-50">
+    <div style={{ display: "flex", minHeight: "100vh", background: "var(--canvas)" }}>
       <Sidebar />
-      <main className="flex-1 overflow-y-auto">
-        <div className="p-8">{children}</div>
-      </main>
+      <div className="sidebar-offset" style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
+        {children}
+      </div>
     </div>
   );
 }
