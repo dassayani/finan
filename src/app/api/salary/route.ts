@@ -25,38 +25,43 @@ export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions);
   if (!session?.user?.id) return NextResponse.json({ error: "Não autorizado" }, { status: 401 });
 
-  const { searchParams } = new URL(req.url);
-  const month = Number(searchParams.get("month") ?? 0);
-  const year = Number(searchParams.get("year") ?? 0);
+  try {
+    const { searchParams } = new URL(req.url);
+    const month = Number(searchParams.get("month") ?? 0);
+    const year = Number(searchParams.get("year") ?? 0);
 
-  const [template, monthSalary] = await Promise.all([
-    prisma.salary.findUnique({
-      where: { userId_month_year: { userId: session.user.id, month: 0, year: 0 } },
-      include: { items: { orderBy: { order: "asc" } } },
-    }),
-    month > 0
-      ? prisma.salary.findUnique({
-          where: { userId_month_year: { userId: session.user.id, month, year } },
+    const [template, monthSalary] = await Promise.all([
+      prisma.salary.findUnique({
+        where: { userId_month_year: { userId: session.user.id, month: 0, year: 0 } },
+        include: { items: { orderBy: { order: "asc" } } },
+      }),
+      month > 0
+        ? prisma.salary.findUnique({
+            where: { userId_month_year: { userId: session.user.id, month, year } },
+            include: { items: { orderBy: { order: "asc" } } },
+          })
+        : null,
+    ]);
+
+    const prevMonth = month === 1 ? 12 : month - 1;
+    const prevYear = month === 1 ? year - 1 : year;
+    const prevSalary = month > 0
+      ? await prisma.salary.findUnique({
+          where: { userId_month_year: { userId: session.user.id, month: prevMonth, year: prevYear } },
           include: { items: { orderBy: { order: "asc" } } },
         })
-      : null,
-  ]);
+      : null;
 
-  const prevMonth = month === 1 ? 12 : month - 1;
-  const prevYear = month === 1 ? year - 1 : year;
-  const prevSalary = month > 0
-    ? await prisma.salary.findUnique({
-        where: { userId_month_year: { userId: session.user.id, month: prevMonth, year: prevYear } },
-        include: { items: { orderBy: { order: "asc" } } },
-      })
-    : null;
-
-  return NextResponse.json({
-    template,
-    monthSalary,
-    effective: monthSalary ?? prevSalary ?? template,
-    source: monthSalary ? "month" : prevSalary ? "prev" : template ? "template" : null,
-  });
+    return NextResponse.json({
+      template,
+      monthSalary,
+      effective: monthSalary ?? prevSalary ?? template,
+      source: monthSalary ? "month" : prevSalary ? "prev" : template ? "template" : null,
+    });
+  } catch (error) {
+    console.error("[salary GET]", error);
+    return NextResponse.json({ error: "Erro interno" }, { status: 500 });
+  }
 }
 
 export async function POST(req: NextRequest) {

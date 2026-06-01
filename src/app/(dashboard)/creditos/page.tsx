@@ -439,8 +439,13 @@ export default function CreditosPage() {
   const [savingCredit, setSavingCredit] = useState(false);
 
   const fetchSalary = useCallback(async () => {
-    const res = await fetch(`/api/salary?month=${month}&year=${year}`);
-    setSalaryData(await res.json());
+    try {
+      const res = await fetch(`/api/salary?month=${month}&year=${year}`);
+      if (!res.ok) return;
+      setSalaryData(await res.json());
+    } catch {
+      // silently ignore — UI will show "não configurado"
+    }
   }, [month, year]);
 
   const fetchCredits = useCallback(async () => {
