@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { Transaction } from "@prisma/client";
+import { CATEGORIES } from "@/lib/constants";
+import type { CategoryKey } from "@/lib/constants";
 
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions);
@@ -15,48 +16,34 @@ export async function GET(req: NextRequest) {
   const startOfMonth = new Date(year, month - 1, 1);
   const endOfMonth = new Date(year, month, 0, 23, 59, 59);
 
-  const [transactions, categoryExpenses] = await Promise.all([
+  const [transactions, categoryGroups] = await Promise.all([
     prisma.transaction.findMany({
       where: { userId: session.user.id, date: { gte: startOfMonth, lte: endOfMonth } },
     }),
     prisma.transaction.groupBy({
-      by: ["categoryId"],
+      by: ["category"],
       where: {
         userId: session.user.id,
         type: "EXPENSE",
         date: { gte: startOfMonth, lte: endOfMonth },
+        category: { not: null },
       },
       _sum: { amount: true },
     }),
   ]);
 
-  const totalIncome = transactions
-    .filter((t: Transaction) => t.type === "INCOME")
-    .reduce((sum: number, t: Transaction) => sum + Number(t.amount), 0);
+  const totalIncome = transactions.filter(t => t.type === "INCOME").reduce((s, t) => s + Number(t.amount), 0);
+  const totalExpense = transactions.filter(t => t.type === "EXPENSE").reduce((s, t) => s + Number(t.amount), 0);
 
-  const totalExpense = transactions
-    .filter((t: Transaction) => t.type === "EXPENSE")
-    .reduce((sum: number, t: Transaction) => sum + Number(t.amount), 0);
-
-  const categoryIds = categoryExpenses
-    .map((c) => c.categoryId)
-    .filter((id): id is string => id !== null);
-
-  const categories = await prisma.category.findMany({
-    where: { id: { in: categoryIds } },
-    select: { id: true, name: true, color: true },
-  });
-
-  const categoryData = categoryExpenses.map((ce) => {
-    const cat = categories.find((c) => c.id === ce.categoryId);
+  const categoryData = categoryGroups.map(ce => {
+    const key = ce.category as CategoryKey;
+    const cat = key ? CATEGORIES[key] : null;
     return {
-      name: cat?.name ?? "Sem categoria",
-      value: Number(ce._sum.amount ?? 0),
+      name: cat?.label ?? "Sem categoria",
+      value: Number(ce._sum?.amount ?? 0),
       color: cat?.color ?? "#6b7280",
     };
-  });
-
-  type MonthGroups = { type: "INCOME" | "EXPENSE"; _sum: { amount: unknown } }[];
+  }).filter(c => c.value > 0).sort((a, b) => b.value - a.value);
 
   const monthlyPromises = Array.from({ length: 6 }, (_, i) => {
     const d = new Date(year, month - 1 - i, 1);
@@ -64,28 +51,20 @@ export async function GET(req: NextRequest) {
       by: ["type"],
       where: {
         userId: session.user.id,
-        date: {
-          gte: new Date(d.getFullYear(), d.getMonth(), 1),
-          lte: new Date(d.getFullYear(), d.getMonth() + 1, 0, 23, 59, 59),
-        },
+        date: { gte: new Date(d.getFullYear(), d.getMonth(), 1), lte: new Date(d.getFullYear(), d.getMonth() + 1, 0, 23, 59, 59) },
       },
       _sum: { amount: true },
-    }).then((groups: MonthGroups) => ({
+    }).then(groups => ({
       month: d.toLocaleDateString("pt-BR", { month: "short", year: "2-digit" }),
-      income: Number(groups.find((g) => g.type === "INCOME")?._sum.amount ?? 0),
-      expense: Number(groups.find((g) => g.type === "EXPENSE")?._sum.amount ?? 0),
+      income: Number(groups.find(g => g.type === "INCOME")?._sum?.amount ?? 0),
+      expense: Number(groups.find(g => g.type === "EXPENSE")?._sum?.amount ?? 0),
     }));
   });
 
   const monthlyData = (await Promise.all(monthlyPromises)).reverse();
 
   return NextResponse.json({
-    stats: {
-      totalIncome,
-      totalExpense,
-      balance: totalIncome - totalExpense,
-      transactionCount: transactions.length,
-    },
+    stats: { totalIncome, totalExpense, balance: totalIncome - totalExpense, transactionCount: transactions.length },
     categoryData,
     monthlyData,
   });

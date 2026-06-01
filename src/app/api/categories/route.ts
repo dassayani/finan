@@ -1,16 +1,10 @@
 import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { CATEGORIES, BANKS } from "@/lib/constants";
 
+// Categories and banks are now static enums, not stored in the database
 export async function GET() {
-  const session = await getServerSession(authOptions);
-  if (!session?.user?.id) return NextResponse.json({ error: "Não autorizado" }, { status: 401 });
-
-  const categories = await prisma.category.findMany({
-    where: { userId: session.user.id },
-    orderBy: { name: "asc" },
+  return NextResponse.json({
+    categories: Object.entries(CATEGORIES).map(([key, val]) => ({ key, ...val })),
+    banks: Object.entries(BANKS).map(([key, val]) => ({ key, ...val })),
   });
-
-  return NextResponse.json(categories);
 }
