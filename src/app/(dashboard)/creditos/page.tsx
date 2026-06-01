@@ -268,19 +268,14 @@ function Holerite({
 
       {/* Source banner */}
       {sourceLabel && (
-        <div style={{ padding: "10px 20px", background: "var(--warn-soft)", borderBottom: "1px solid var(--line-2)" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
-            <OrcaIcon name="repeat" size={13} style={{ color: "var(--warn)", flex: "0 0 auto" }} />
-            <span style={{ fontSize: 12, fontWeight: 700, color: "var(--warn)" }}>{sourceLabel}</span>
-          </div>
-          <div style={{ display: "flex", gap: 8 }}>
-            <button className="btn btn-primary" style={{ padding: "6px 12px", fontSize: 12, flex: 1 }} onClick={onConfirmMonth}>
-              <OrcaIcon name="check" size={13} />Confirmar salário deste mês
-            </button>
-            <button className="btn btn-ghost" style={{ padding: "6px 12px", fontSize: 12 }} onClick={onEditMonth}>
-              <OrcaIcon name="edit" size={12} />Editar antes
-            </button>
-          </div>
+        <div style={{ padding: "8px 20px", background: "var(--surface-2)", borderBottom: "1px solid var(--line-2)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <span style={{ fontSize: 12, fontWeight: 600, color: "var(--ink-3)", display: "flex", alignItems: "center", gap: 6 }}>
+            <OrcaIcon name="repeat" size={13} style={{ flex: "0 0 auto" }} />
+            {sourceLabel}
+          </span>
+          <button className="btn btn-ghost" style={{ padding: "4px 10px", fontSize: 11 }} onClick={onEditMonth}>
+            <OrcaIcon name="edit" size={12} />Editar este mês
+          </button>
         </div>
       )}
 
@@ -450,9 +445,14 @@ export default function CreditosPage() {
 
   const fetchCredits = useCallback(async () => {
     setLoadingCredits(true);
-    const res = await fetch(`/api/credits?month=${month}&year=${year}`);
-    setCredits(await res.json());
-    setLoadingCredits(false);
+    try {
+      const res = await fetch(`/api/credits?month=${month}&year=${year}`);
+      if (res.ok) setCredits(await res.json());
+    } catch {
+      // ignore
+    } finally {
+      setLoadingCredits(false);
+    }
   }, [month, year]);
 
   useEffect(() => {
@@ -463,10 +463,26 @@ export default function CreditosPage() {
   async function handleSaveSalary(data: Record<string, unknown>) {
     setSavingSalary(true);
     try {
-      await fetch("/api/salary", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data) });
+      await fetch("/api/salary", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      });
+
+      // If saving the template, also auto-confirm the current month so the
+      // INCOME transaction is created immediately — no extra click needed
+      if (data.month === 0) {
+        await fetch("/api/salary", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...data, month, year }),
+        });
+      }
+
       setShowSalaryMonth(false);
       setShowSalaryTemplate(false);
-      fetchSalary();
+      await fetchSalary();
+      await fetchCredits();
     } finally { setSavingSalary(false); }
   }
 
@@ -690,13 +706,12 @@ export default function CreditosPage() {
 
             {/* Nota sobre herança */}
             {salaryData?.effective && salaryData.source !== "month" && (
-              <div style={{ display: "flex", gap: 10, padding: "12px 14px", background: "var(--accent-soft)", borderRadius: "var(--r-md)", border: "1px solid var(--accent-soft)" }}>
-                <OrcaIcon name="repeat" size={16} style={{ color: "var(--accent)", flex: "0 0 auto", marginTop: 1 }} />
-                <div style={{ fontSize: 12.5, color: "var(--accent)", fontWeight: 600, lineHeight: 1.5 }}>
-                  O holerite exibido é {salaryData.source === "prev" ? "do mês anterior" : "do modelo base"}.
-                  Se houve alteração neste mês (férias, PLR, mudança de plano), clique em{" "}
-                  <b>"Editar este mês"</b> para registrar.
-                </div>
+              <div style={{ display: "flex", gap: 10, padding: "11px 14px", background: "var(--accent-soft)", borderRadius: "var(--r-md)" }}>
+                <OrcaIcon name="repeat" size={15} style={{ color: "var(--accent)", flex: "0 0 auto", marginTop: 1 }} />
+                <span style={{ fontSize: 12.5, color: "var(--accent)", fontWeight: 600, lineHeight: 1.5 }}>
+                  Valores herdados {salaryData.source === "prev" ? "do mês anterior" : "do modelo base"}.
+                  Se houve férias, PLR ou mudança de plano neste mês, clique em <b>"Editar este mês"</b>.
+                </span>
               </div>
             )}
           </div>
