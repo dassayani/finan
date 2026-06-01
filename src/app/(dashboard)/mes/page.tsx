@@ -23,6 +23,14 @@ interface Transaction {
   installmentIndex: number | null;
 }
 
+interface BankFee {
+  id: string;
+  bank: string;
+  name: string;
+  amount: number;
+  billingDay: number;
+}
+
 const BANK_IDS: BankKey[] = ["caixa", "itau", "bb", "nubank", "picpay", "inter", "mp"];
 
 // ---------- Form de edição ----------
@@ -208,46 +216,60 @@ function DenseRow({
 }
 
 function DenseSection({
-  title, badge, color, items, total, paidVal, taxa, onEdit, onDelete, onTogglePaid,
+  title, badge, color, items, fees, total, paidVal, onEdit, onDelete, onTogglePaid,
 }: {
   title: string; badge: React.ReactNode; color: string;
-  items: Transaction[]; total: number; paidVal: number; taxa?: number;
+  items: Transaction[]; fees?: BankFee[]; total: number; paidVal: number;
   onEdit: (tx: Transaction) => void;
   onDelete: (tx: Transaction) => void;
   onTogglePaid: (tx: Transaction) => void;
 }) {
   const pct = total > 0 ? Math.round((paidVal / total) * 100) : 0;
+  const hasContent = items.length > 0 || (fees && fees.length > 0);
+
   return (
     <div className="card" style={{ marginBottom: 14, overflow: "hidden" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "11px 16px", borderLeft: `3px solid ${color}`, background: "var(--surface-2)", borderBottom: "1px solid var(--line-2)" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           {badge}
           <span style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 14 }}>{title}</span>
-          <span className="row-meta">{items.length} lançamentos</span>
+          <span className="row-meta">{items.length} lançamentos{fees && fees.length > 0 ? ` · ${fees.length} taxa${fees.length > 1 ? "s" : ""}` : ""}</span>
         </div>
         <span className="amt neg num" style={{ fontSize: 14 }}>{formatBRL(-total)}</span>
       </div>
 
-      {items.length === 0 && (
+      {!hasContent && (
         <div style={{ padding: "16px 20px", fontSize: 13, color: "var(--ink-3)", textAlign: "center" }}>Nenhum lançamento</div>
       )}
 
       {items.map((tx, i) => (
         <DenseRow
-          key={tx.id}
-          tx={tx}
-          last={!taxa && i === items.length - 1}
+          key={tx.id} tx={tx}
+          last={i === items.length - 1 && (!fees || fees.length === 0)}
           onEdit={() => onEdit(tx)}
           onDelete={() => onDelete(tx)}
           onTogglePaid={() => onTogglePaid(tx)}
         />
       ))}
 
-      {taxa ? (
-        <div style={{ display: "grid", gridTemplateColumns: "1fr auto", padding: "8px 16px", fontSize: 12.5, color: "var(--ink-3)", fontWeight: 600 }}>
-          <span>Taxa do banco</span><span className="num">{formatBRL(-taxa)}</span>
+      {/* Bank fees — fixed charges shown separately */}
+      {fees && fees.length > 0 && (
+        <div style={{ borderTop: items.length > 0 ? "1px dashed var(--line-2)" : "none" }}>
+          <div style={{ padding: "5px 16px 2px", fontSize: 10.5, fontWeight: 700, letterSpacing: ".07em", textTransform: "uppercase", color: "var(--ink-3)" }}>
+            Taxas do banco
+          </div>
+          {fees.map((fee, i) => (
+            <div key={fee.id} style={{ display: "grid", gridTemplateColumns: "1fr auto", alignItems: "center", padding: "7px 16px", borderBottom: i === fees.length - 1 ? "none" : "1px solid var(--line-2)", fontSize: 13 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ width: 6, height: 6, borderRadius: "50%", background: color, opacity: .5 }} />
+                <span style={{ fontWeight: 600, color: "var(--ink-2)" }}>{fee.name}</span>
+                <span className="row-meta">dia {fee.billingDay}</span>
+              </div>
+              <span className="amt neg num" style={{ fontSize: 13 }}>{formatBRL(-Number(fee.amount))}</span>
+            </div>
+          ))}
         </div>
-      ) : null}
+      )}
 
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "7px 16px", borderTop: "1px solid var(--line-2)" }}>
         <span className="row-meta num">{formatBRL(paidVal)} de {formatBRL(total)} pago</span>
@@ -262,6 +284,7 @@ export default function MesPage() {
   const [month, setMonth] = useState(now.getMonth() + 1);
   const [year, setYear] = useState(now.getFullYear());
   const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [bankFees, setBankFees] = useState<BankFee[]>([]);
   const [loading, setLoading] = useState(true);
   const [editTx, setEditTx] = useState<Transaction | null>(null);
   const [showNew, setShowNew] = useState(false);
@@ -271,9 +294,12 @@ export default function MesPage() {
   const fetchTransactions = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/transactions?month=${month}&year=${year}&type=EXPENSE`);
-      const data = await res.json();
-      setTransactions(data);
+      const [txRes, feesRes] = await Promise.all([
+        fetch(`/api/transactions?month=${month}&year=${year}&type=EXPENSE`),
+        fetch("/api/bank-fees"),
+      ]);
+      if (txRes.ok) setTransactions(await txRes.json());
+      if (feesRes.ok) setBankFees(await feesRes.json());
     } finally {
       setLoading(false);
     }
@@ -291,16 +317,26 @@ export default function MesPage() {
 
   const fixos = applyFilter(transactions.filter(t => t.expenseType === "FIXED"));
   const variaveis = applyFilter(transactions.filter(t => t.expenseType === "VARIABLE"));
-  const allBankIds = BANK_IDS.filter(id => transactions.some(t => t.expenseType === "BANK_BILL" && t.bank === id));
+  // Banks that have transactions OR configured fees
+  const allBankIds = BANK_IDS.filter(id =>
+    transactions.some(t => t.expenseType === "BANK_BILL" && t.bank === id) ||
+    bankFees.some(f => f.bank === id)
+  );
 
   const sum = (items: Transaction[]) => items.reduce((a, t) => a + Number(t.amount), 0);
   const sumPaid = (items: Transaction[]) => items.filter(t => t.isPaid).reduce((a, t) => a + Number(t.amount), 0);
+  const sumFees = (bankId: string) => bankFees.filter(f => f.bank === bankId).reduce((a, f) => a + Number(f.amount), 0);
 
   const fixosTotal = sum(transactions.filter(t => t.expenseType === "FIXED"));
   const varsTotal = sum(transactions.filter(t => t.expenseType === "VARIABLE"));
-  const banksTotals = Object.fromEntries(BANK_IDS.map(id => [id, sum(transactions.filter(t => t.expenseType === "BANK_BILL" && t.bank === id))]));
+  // Bank totals include transactions + configured fees
+  const banksTotals = Object.fromEntries(BANK_IDS.map(id => [
+    id,
+    sum(transactions.filter(t => t.expenseType === "BANK_BILL" && t.bank === id)) + sumFees(id),
+  ]));
+  const totalFees = bankFees.reduce((a, f) => a + Number(f.amount), 0);
   const debits = fixosTotal + varsTotal + Object.values(banksTotals).reduce((a, v) => a + v, 0);
-  const paid = sumPaid(transactions);
+  const paid = sumPaid(transactions); // fees are always pending (not in transactions)
   const pending = debits - paid;
   const saldo = credits - debits;
   const pct = debits > 0 ? Math.round((paid / debits) * 100) : 0;
@@ -310,6 +346,9 @@ export default function MesPage() {
     { label: "Variáveis", v: varsTotal, c: "#5B49C9" },
     ...allBankIds.map(id => ({ label: BANKS[id].name, v: banksTotals[id], c: BANKS[id].color })),
   ].filter(b => b.v > 0).sort((a, b) => b.v - a.v);
+
+  // suppress unused warning
+  void totalFees;
   const maxB = Math.max(...buckets.map(b => b.v), 1);
 
   const monthLabel = new Date(year, month - 1).toLocaleDateString("pt-BR", { month: "long", year: "numeric" });
@@ -464,12 +503,14 @@ export default function MesPage() {
                 <div style={{ columnCount: 2, columnGap: 14 }}>
                   {allBankIds.map(id => {
                     const bankItems = applyFilter(transactions.filter(t => t.expenseType === "BANK_BILL" && t.bank === id));
+                    const bankFeeItems = bankFees.filter(f => f.bank === id);
                     return (
                       <div key={id} style={{ breakInside: "avoid" }}>
                         <DenseSection
                           title={BANKS[id].name} color={BANKS[id].color}
                           items={bankItems}
-                          total={sum(transactions.filter(t => t.expenseType === "BANK_BILL" && t.bank === id))}
+                          fees={bankFeeItems}
+                          total={banksTotals[id]}
                           paidVal={sumPaid(transactions.filter(t => t.expenseType === "BANK_BILL" && t.bank === id))}
                           badge={<BankBadge id={id} size={24} />}
                           {...sectionProps}
