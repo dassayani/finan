@@ -129,7 +129,6 @@ export default function DebitoPage() {
   const [useManual, setUseManual] = useState(false);
   const [isPaid, setIsPaid] = useState(false);
   const [notes, setNotes] = useState("");
-  const [showNotes, setShowNotes] = useState(false);
   const [repeat, setRepeat] = useState(false);
   const [repeatUntil, setRepeatUntil] = useState("");
   const [repeatPreset, setRepeatPreset] = useState<"year" | "custom">("year");
@@ -433,21 +432,19 @@ export default function DebitoPage() {
               <span className={`switch${isPaid ? " on" : ""}`} onClick={() => setIsPaid(v => !v)} style={{ cursor: "pointer" }} />
             </div>
 
-            {/* Notes toggle */}
-            <div>
-              <button onClick={() => setShowNotes(v => !v)} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--ink-3)", fontSize: 12.5, fontWeight: 700, display: "flex", alignItems: "center", gap: 6, padding: 0 }}>
-                <OrcaIcon name="edit" size={13} />
-                {showNotes ? "Ocultar observação" : "Adicionar observação"}
-              </button>
-              {showNotes && (
-                <textarea
-                  className="orça-input"
-                  style={{ marginTop: 8, resize: "vertical", minHeight: 72, fontFamily: "var(--font-body)", fontSize: 13 }}
-                  value={notes}
-                  onChange={e => setNotes(e.target.value)}
-                  placeholder="Detalhes, contexto ou lembretes sobre este lançamento..."
-                />
-              )}
+            {/* Notes — always visible in the form */}
+            <div className="field">
+              <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <OrcaIcon name="edit" size={13} style={{ color: "var(--ink-3)" }} />
+                Observação <span style={{ fontWeight: 400, color: "var(--ink-3)" }}>(opcional)</span>
+              </label>
+              <textarea
+                className="orça-input"
+                style={{ resize: "vertical", minHeight: 72, fontFamily: "var(--font-body)", fontSize: 13 }}
+                value={notes}
+                onChange={e => setNotes(e.target.value)}
+                placeholder="Detalhes, contexto ou lembretes — aparece na Visão do Mês ao clicar no ícone de nota"
+              />
             </div>
           </div>
         </div>
