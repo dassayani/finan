@@ -133,9 +133,9 @@ function SalaryForm({
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
       {isTemplate && (
-        <div style={{ background: "var(--accent-soft)", border: "1px solid var(--accent)", borderRadius: "var(--r-md)", padding: "10px 14px", marginBottom: 18, fontSize: 12.5, color: "var(--accent)", fontWeight: 600, display: "flex", gap: 8 }}>
+        <div style={{ background: "var(--accent-soft)", border: "1px solid var(--accent)", borderRadius: "var(--r-md)", padding: "10px 14px", marginBottom: 18, fontSize: 12.5, color: "var(--accent)", fontWeight: 600, display: "flex", gap: 8, alignItems: "flex-start" }}>
           <OrcaIcon name="repeat" size={15} style={{ flex: "0 0 auto", marginTop: 1 }} />
-          Este é o <b>modelo base</b>. Meses sem alteração herdarão esses valores automaticamente.
+          <span>Este é o <b>modelo base</b>. Meses sem alteração herdarão esses valores automaticamente.</span>
         </div>
       )}
 
@@ -229,6 +229,7 @@ function Holerite({
   onEditMonth,
   onEditTemplate,
   onResetMonth,
+  onConfirmMonth,
 }: {
   salary: Salary;
   source: "month" | "prev" | "template" | null;
@@ -237,6 +238,7 @@ function Holerite({
   onEditMonth: () => void;
   onEditTemplate: () => void;
   onResetMonth: () => void;
+  onConfirmMonth: () => void;
 }) {
   const proventos = salary.items.filter(i => i.type === "PROVENTO");
   const descontos = salary.items.filter(i => i.type === "DESCONTO");
@@ -266,13 +268,17 @@ function Holerite({
 
       {/* Source banner */}
       {sourceLabel && (
-        <div style={{ padding: "7px 20px", background: "var(--warn-soft)", display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: "1px solid var(--line-2)" }}>
-          <span style={{ fontSize: 12, fontWeight: 700, color: "var(--warn)", display: "flex", alignItems: "center", gap: 6 }}>
-            <OrcaIcon name="repeat" size={13} />{sourceLabel}
-          </span>
+        <div style={{ padding: "10px 20px", background: "var(--warn-soft)", borderBottom: "1px solid var(--line-2)" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
+            <OrcaIcon name="repeat" size={13} style={{ color: "var(--warn)", flex: "0 0 auto" }} />
+            <span style={{ fontSize: 12, fontWeight: 700, color: "var(--warn)" }}>{sourceLabel}</span>
+          </div>
           <div style={{ display: "flex", gap: 8 }}>
-            <button className="btn btn-ghost" style={{ padding: "4px 10px", fontSize: 11 }} onClick={onEditMonth}>
-              <OrcaIcon name="edit" size={12} />Editar este mês
+            <button className="btn btn-primary" style={{ padding: "6px 12px", fontSize: 12, flex: 1 }} onClick={onConfirmMonth}>
+              <OrcaIcon name="check" size={13} />Confirmar salário deste mês
+            </button>
+            <button className="btn btn-ghost" style={{ padding: "6px 12px", fontSize: 12 }} onClick={onEditMonth}>
+              <OrcaIcon name="edit" size={12} />Editar antes
             </button>
           </div>
         </div>
@@ -342,16 +348,56 @@ function CreditForm({ initial, onSave, onCancel, loading }: { initial?: Partial<
     category: initial?.category ?? "reemb",
     date: initial?.date ? new Date(initial.date).toISOString().split("T")[0] : new Date().toISOString().split("T")[0],
     notes: initial?.notes ?? "",
+    isRecurring: false,
+    endDate: "",
   });
-  const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }));
+  const set = (k: string, v: string | boolean) => setForm(f => ({ ...f, [k]: v }));
+
+  function handleSave() {
+    const base = {
+      description: form.description,
+      amount: parseFloat(form.amount),
+      type: "INCOME",
+      category: form.category || null,
+      notes: form.notes || null,
+      isPaid: true,
+      isRecurring: form.isRecurring,
+      endDate: form.isRecurring && form.endDate ? form.endDate : null,
+      date: form.date,
+    };
+    onSave(base);
+  }
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      <div className="field"><label>Descrição</label><input className="orça-input" value={form.description} onChange={e => set("description", e.target.value)} placeholder="Reembolso, bônus..." /></div>
+      <div className="field"><label>Descrição</label><input className="orça-input" value={form.description} onChange={e => set("description", e.target.value)} placeholder="Reembolso, aluguel, bônus..." /></div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
         <div className="field"><label>Valor (R$)</label><input className="orça-input num" type="number" step="0.01" value={form.amount} onChange={e => set("amount", e.target.value)} /></div>
-        <div className="field"><label>Data</label><input className="orça-input" type="date" value={form.date} onChange={e => set("date", e.target.value)} /></div>
+        <div className="field"><label>Data de início</label><input className="orça-input" type="date" value={form.date} onChange={e => set("date", e.target.value)} /></div>
       </div>
+
+      {/* Recorrência */}
+      <div style={{ padding: "12px 14px", background: "var(--surface-2)", borderRadius: "var(--r-md)", border: "1px solid var(--line)" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: form.isRecurring ? 12 : 0 }}>
+          <div>
+            <div style={{ fontWeight: 700, fontSize: 13.5 }}>Crédito recorrente</div>
+            <div className="row-meta">Lança automaticamente todo mês até a data final</div>
+          </div>
+          <span
+            className={`switch${form.isRecurring ? " on" : ""}`}
+            onClick={() => set("isRecurring", !form.isRecurring)}
+            style={{ cursor: "pointer" }}
+          />
+        </div>
+        {form.isRecurring && (
+          <div className="field">
+            <label>Data final (vencimento)</label>
+            <input className="orça-input" type="date" value={form.endDate} onChange={e => set("endDate", e.target.value)} />
+            <span className="row-meta">Deixe em branco para recorrência indefinida</span>
+          </div>
+        )}
+      </div>
+
       <div className="field"><label>Categoria</label>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
           {(Object.entries(CATEGORIES) as [CategoryKey, typeof CATEGORIES[CategoryKey]][]).map(([k, c]) => (
@@ -364,9 +410,8 @@ function CreditForm({ initial, onSave, onCancel, loading }: { initial?: Partial<
       <div className="field"><label>Observações</label><input className="orça-input" value={form.notes} onChange={e => set("notes", e.target.value)} placeholder="Opcional..." /></div>
       <div style={{ display: "flex", gap: 10 }}>
         <button className="btn btn-ghost" style={{ flex: 1 }} onClick={onCancel}>Cancelar</button>
-        <button className="btn btn-primary" style={{ flex: 1 }} disabled={loading || !form.description || !form.amount}
-          onClick={() => onSave({ description: form.description, amount: parseFloat(form.amount), type: "INCOME", category: form.category || null, date: form.date, notes: form.notes || null, isPaid: true })}>
-          {loading ? "Salvando..." : <><OrcaIcon name="check" size={15} />Salvar</>}
+        <button className="btn btn-primary" style={{ flex: 1 }} disabled={loading || !form.description || !form.amount} onClick={handleSave}>
+          {loading ? "Salvando..." : <><OrcaIcon name="check" size={15} />{form.isRecurring ? "Salvar recorrência" : "Salvar"}</>}
         </button>
       </div>
     </div>
@@ -427,13 +472,66 @@ export default function CreditosPage() {
     fetchSalary();
   }
 
+  // Confirms the inherited salary for the current month, creating the INCOME transaction
+  async function handleConfirmMonth() {
+    const effective = salaryData?.effective;
+    if (!effective) return;
+    await handleSaveSalary({
+      month,
+      year,
+      baseAmount: Number(effective.baseAmount),
+      netAmount: Number(effective.netAmount),
+      payDay: effective.payDay,
+      notes: effective.notes,
+      items: effective.items.map((it, i) => ({ name: it.name, amount: Number(it.amount), type: it.type, order: i })),
+    });
+    fetchCredits();
+  }
+
   async function handleSaveCredit(data: Record<string, unknown>) {
     setSavingCredit(true);
     try {
       if (editCredit) {
-        await fetch(`/api/transactions/${editCredit.id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data) });
+        await fetch(`/api/transactions/${editCredit.id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ description: data.description, amount: data.amount, category: data.category, date: data.date, notes: data.notes }),
+        });
+      } else if (data.isRecurring) {
+        // Create one transaction per month from startDate to endDate
+        const startDate = new Date(data.date as string);
+        const endDate = data.endDate ? new Date(data.endDate as string) : new Date(startDate.getFullYear(), startDate.getMonth() + 23, startDate.getDate());
+        const groupId = `recur-${Date.now()}`;
+
+        const dates: Date[] = [];
+        let d = new Date(startDate);
+        while (d <= endDate) {
+          dates.push(new Date(d));
+          d = new Date(d.getFullYear(), d.getMonth() + 1, d.getDate());
+        }
+
+        await Promise.all(dates.map((dt, i) =>
+          fetch("/api/transactions", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              description: data.description,
+              amount: data.amount,
+              type: "INCOME",
+              category: data.category,
+              date: dt.toISOString().split("T")[0],
+              notes: data.notes,
+              isPaid: i === 0,
+              groupId,
+            }),
+          })
+        ));
       } else {
-        await fetch("/api/transactions", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data) });
+        await fetch("/api/transactions", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...data, isRecurring: undefined, endDate: undefined }),
+        });
       }
       setEditCredit(null); setShowNewCredit(false); fetchCredits();
     } finally { setSavingCredit(false); }
@@ -524,6 +622,7 @@ export default function CreditosPage() {
               onEditMonth={() => setShowSalaryMonth(true)}
               onEditTemplate={() => setShowSalaryTemplate(true)}
               onResetMonth={handleResetMonth}
+              onConfirmMonth={handleConfirmMonth}
             />
           ) : (
             <div className="card card-pad" style={{ textAlign: "center", color: "var(--ink-3)", padding: 48 }}>

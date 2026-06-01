@@ -21,8 +21,6 @@ const salarySchema = z.object({
   items: z.array(itemSchema),
 });
 
-// GET /api/salary?month=X&year=Y
-// Returns: the salary for that month, or falls back to previous month, then template (0,0)
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions);
   if (!session?.user?.id) return NextResponse.json({ error: "Não autorizado" }, { status: 401 });
@@ -31,7 +29,6 @@ export async function GET(req: NextRequest) {
   const month = Number(searchParams.get("month") ?? 0);
   const year = Number(searchParams.get("year") ?? 0);
 
-  // Fetch template (0,0) and the specific month
   const [template, monthSalary] = await Promise.all([
     prisma.salary.findUnique({
       where: { userId_month_year: { userId: session.user.id, month: 0, year: 0 } },
@@ -45,7 +42,6 @@ export async function GET(req: NextRequest) {
       : null,
   ]);
 
-  // Also fetch previous month for fallback info
   const prevMonth = month === 1 ? 12 : month - 1;
   const prevYear = month === 1 ? year - 1 : year;
   const prevSalary = month > 0
@@ -58,13 +54,11 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({
     template,
     monthSalary,
-    // effective: what to display for this month
     effective: monthSalary ?? prevSalary ?? template,
     source: monthSalary ? "month" : prevSalary ? "prev" : template ? "template" : null,
   });
 }
 
-// POST /api/salary — create or upsert salary for a month/template
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions);
   if (!session?.user?.id) return NextResponse.json({ error: "Não autorizado" }, { status: 401 });
@@ -89,6 +83,48 @@ export async function POST(req: NextRequest) {
       },
       include: { items: { orderBy: { order: "asc" } } },
     });
+
+    // For a specific month (not template), upsert the INCOME transaction so it
+    // appears in the cash flow and credits list automatically
+    if (data.month > 0 && data.netAmount > 0) {
+      const payDay = data.payDay ?? 5;
+      const txDate = new Date(data.year, data.month - 1, payDay);
+
+      // Find existing salary transaction for this month (tagged with salary groupId)
+      const existing = await prisma.transaction.findFirst({
+        where: {
+          userId: session.user.id,
+          type: "INCOME",
+          category: "trab",
+          date: {
+            gte: new Date(data.year, data.month - 1, 1),
+            lte: new Date(data.year, data.month, 0, 23, 59, 59),
+          },
+          groupId: `salary-${session.user.id}`,
+        },
+      });
+
+      if (existing) {
+        await prisma.transaction.update({
+          where: { id: existing.id },
+          data: { amount: data.netAmount, date: txDate, notes: data.notes ?? null },
+        });
+      } else {
+        await prisma.transaction.create({
+          data: {
+            description: "Salário CLT",
+            amount: data.netAmount,
+            type: "INCOME",
+            category: "trab",
+            date: txDate,
+            notes: data.notes ?? null,
+            isPaid: true,
+            groupId: `salary-${session.user.id}`,
+            userId: session.user.id,
+          },
+        });
+      }
+    }
 
     return NextResponse.json(salary, { status: 201 });
   } catch (error) {
