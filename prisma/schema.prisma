@@ -22,6 +22,9 @@ model User {
   investments   Investment[]
   salaries      Salary[]
   bankFees      BankFee[]
+  bankBalances  BankBalance[]
+  customBanks   CustomBank[]
+  bankEntries   BankEntry[]
 
   @@map("users")
 }
@@ -167,6 +170,8 @@ model Subscription {
   icon      String               @default("repeat")
   total     Decimal              @db.Decimal(12, 2)
   account   String?
+  period    String               @default("mensal")
+  startDate DateTime?            @map("start_date")
   createdAt DateTime             @default(now()) @map("created_at")
   user      User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
   members   SubscriptionMember[]
@@ -175,17 +180,27 @@ model Subscription {
 }
 
 model SubscriptionMember {
-  id             String       @id @default(cuid())
-  subscriptionId String       @map("subscription_id")
+  id             String                @id @default(cuid())
+  subscriptionId String                @map("subscription_id")
   name           String
-  share          Decimal      @db.Decimal(12, 2)
-  isOwner        Boolean      @default(false) @map("is_owner")
-  paidAt         DateTime?    @map("paid_at")
-  month          Int
-  year           Int
-  subscription   Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  share          Decimal               @db.Decimal(12, 2)
+  isOwner        Boolean               @default(false) @map("is_owner")
+  subscription   Subscription          @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  payments       SubscriptionPayment[]
 
   @@map("subscription_members")
+}
+
+model SubscriptionPayment {
+  id       String             @id @default(cuid())
+  memberId String             @map("member_id")
+  month    Int
+  year     Int
+  paidAt   DateTime           @default(now()) @map("paid_at")
+  member   SubscriptionMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@unique([memberId, month, year])
+  @@map("subscription_payments")
 }
 
 // Bank fees configured once, applied automatically each month
@@ -217,4 +232,77 @@ model Investment {
   user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("investments")
+}
+
+model CustomBank {
+  id        String              @id @default(cuid())
+  userId    String              @map("user_id")
+  name      String
+  short     String
+  color     String              @default("#6B7280")
+  createdAt DateTime            @default(now()) @map("created_at")
+  user      User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  fees      CustomBankFee[]
+  balances  CustomBankBalance[]
+  entries   BankEntry[]
+
+  @@map("custom_banks")
+}
+
+model CustomBankBalance {
+  id           String     @id @default(cuid())
+  customBankId String     @map("custom_bank_id")
+  month        Int
+  year         Int
+  balance      Decimal    @db.Decimal(12, 2)
+  updatedAt    DateTime   @updatedAt @map("updated_at")
+  customBank   CustomBank @relation(fields: [customBankId], references: [id], onDelete: Cascade)
+
+  @@unique([customBankId, month, year])
+  @@map("custom_bank_balances")
+}
+
+model CustomBankFee {
+  id           String     @id @default(cuid())
+  customBankId String     @map("custom_bank_id")
+  name         String
+  amount       Decimal    @db.Decimal(12, 2)
+  billingDay   Int        @default(1)
+  active       Boolean    @default(true)
+  createdAt    DateTime   @default(now()) @map("created_at")
+  customBank   CustomBank @relation(fields: [customBankId], references: [id], onDelete: Cascade)
+
+  @@map("custom_bank_fees")
+}
+
+model BankEntry {
+  id           String          @id @default(cuid())
+  userId       String          @map("user_id")
+  bank         BankKey?
+  customBankId String?         @map("custom_bank_id")
+  month        Int
+  year         Int
+  description  String
+  amount       Decimal         @db.Decimal(12, 2)
+  type         TransactionType
+  createdAt    DateTime        @default(now()) @map("created_at")
+  user         User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  customBank   CustomBank?     @relation(fields: [customBankId], references: [id], onDelete: Cascade)
+
+  @@map("bank_entries")
+}
+
+model BankBalance {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  bank      BankKey
+  month     Int
+  year      Int
+  balance   Decimal  @db.Decimal(12, 2)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, bank, month, year])
+  @@map("bank_balances")
 }

@@ -7,6 +7,17 @@ import { Modal } from "@/components/ui/modal";
 import { CATEGORIES, formatBRL } from "@/lib/constants";
 import type { CategoryKey } from "@/lib/constants";
 
+// ─── Date helpers (local timezone, avoiding UTC day-shift) ───────────────────
+
+function parseLocalDate(s: string) {
+  const [y, m, d] = s.split("-").map(Number);
+  return new Date(y, m - 1, d);
+}
+
+function formatLocalDate(d: Date) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 interface SalaryItem {
@@ -40,18 +51,46 @@ interface Credit {
   description: string;
   amount: number;
   category: string | null;
+  bank: string | null;
   date: string;
   notes: string | null;
+  groupId: string | null;
 }
+
+interface BonusEntry {
+  id: string;
+  month: number;
+  year: number;
+  baseAmount: number;
+  netAmount: number;
+  notes: string | null;
+  items: SalaryItem[];
+}
+
+const BONUS_DEFAULTS = {
+  plr: {
+    label: "PLR",
+    proventos: [{ name: "Participação resultados", amount: 0, type: "PROVENTO" as const }],
+    descontos: [{ name: "Taxa negociável - PLR", amount: 0, type: "DESCONTO" as const }],
+  },
+  decimo: {
+    label: "Décimo Terceiro",
+    proventos: [{ name: "Parcela do Décimo", amount: 0, type: "PROVENTO" as const }],
+    descontos: [
+      { name: "INSS", amount: 0, type: "DESCONTO" as const },
+      { name: "IRRF", amount: 0, type: "DESCONTO" as const },
+      { name: "Desconto adiantamento da parcela", amount: 0, type: "DESCONTO" as const },
+    ],
+  },
+} as const;
+
+type BonusType = keyof typeof BONUS_DEFAULTS;
 
 // ─── Salary Form ─────────────────────────────────────────────────────────────
 
 const DEFAULT_PROVENTOS: SalaryItem[] = [
   { name: "Salário base", amount: 0, type: "PROVENTO" },
   { name: "Horas extras", amount: 0, type: "PROVENTO" },
-  { name: "PLR / Participação", amount: 0, type: "PROVENTO" },
-  { name: "Férias (1/3 constitucional)", amount: 0, type: "PROVENTO" },
-  { name: "13º Salário", amount: 0, type: "PROVENTO" },
 ];
 
 const DEFAULT_DESCONTOS: SalaryItem[] = [
@@ -61,6 +100,16 @@ const DEFAULT_DESCONTOS: SalaryItem[] = [
   { name: "Plano Dental", amount: 0, type: "DESCONTO" },
   { name: "Vale Transporte", amount: 0, type: "DESCONTO" },
 ];
+
+
+// When editing the template, align saved items with the current defaults:
+// preserve amounts for matching names, drop removed items, add new items at 0.
+function mergeWithDefaults(saved: SalaryItem[], defaults: SalaryItem[]): SalaryItem[] {
+  return defaults.map(def => {
+    const existing = saved.find(s => s.name === def.name);
+    return existing ? { ...existing } : { ...def };
+  });
+}
 
 function SalaryForm({
   initial,
@@ -80,15 +129,18 @@ function SalaryForm({
   loading: boolean;
 }) {
   const initItems = initial?.items ?? [];
+  const savedP = initItems.filter(i => i.type === "PROVENTO");
+  const savedD = initItems.filter(i => i.type === "DESCONTO");
+
   const [proventos, setProventos] = useState<SalaryItem[]>(
-    initItems.filter(i => i.type === "PROVENTO").length > 0
-      ? initItems.filter(i => i.type === "PROVENTO")
-      : DEFAULT_PROVENTOS
+    savedP.length === 0 ? DEFAULT_PROVENTOS
+      : isTemplate ? mergeWithDefaults(savedP, DEFAULT_PROVENTOS)
+      : savedP
   );
   const [descontos, setDescontos] = useState<SalaryItem[]>(
-    initItems.filter(i => i.type === "DESCONTO").length > 0
-      ? initItems.filter(i => i.type === "DESCONTO")
-      : DEFAULT_DESCONTOS
+    savedD.length === 0 ? DEFAULT_DESCONTOS
+      : isTemplate ? mergeWithDefaults(savedD, DEFAULT_DESCONTOS)
+      : savedD
   );
   const [payDay, setPayDay] = useState(initial?.payDay ? String(initial.payDay) : "5");
   const [notes, setNotes] = useState(initial?.notes ?? "");
@@ -219,6 +271,215 @@ function SalaryForm({
   );
 }
 
+// ─── Bonus Form ──────────────────────────────────────────────────────────────
+
+function BonusForm({ bonusType: initialType, year, month, initial, onSave, onCancel, loading }: {
+  bonusType: BonusType | null;
+  year: number;
+  month: number;
+  initial?: BonusEntry | null;
+  onSave: (d: Record<string, unknown>) => void;
+  onCancel: () => void;
+  loading: boolean;
+}) {
+  const [bonusType, setBonusType] = useState<BonusType>(initialType ?? "plr");
+  const isEditing = !!initial;
+
+  const defaults = BONUS_DEFAULTS[bonusType];
+  const initItems = initial?.items ?? [];
+  const savedP = initItems.filter(i => i.type === "PROVENTO");
+  const savedD = initItems.filter(i => i.type === "DESCONTO");
+
+  const [proventos, setProventos] = useState<SalaryItem[]>(savedP.length > 0 ? savedP : defaults.proventos.map(i => ({ ...i })));
+  const [descontos, setDescontos] = useState<SalaryItem[]>(savedD.length > 0 ? savedD : defaults.descontos.map(i => ({ ...i })));
+  const [payDate, setPayDate]     = useState(`${year}-${String(month).padStart(2, "0")}-01`);
+  const [notes, setNotes]         = useState(initial?.notes ?? "");
+
+  function handleTypeChange(t: BonusType) {
+    if (isEditing) return;
+    setBonusType(t);
+    setProventos(BONUS_DEFAULTS[t].proventos.map(i => ({ ...i })));
+    setDescontos(BONUS_DEFAULTS[t].descontos.map(i => ({ ...i })));
+  }
+
+  function setItem(list: SalaryItem[], setList: (l: SalaryItem[]) => void, idx: number, field: "name" | "amount", value: string) {
+    setList(list.map((it, i) => i === idx ? { ...it, [field]: field === "amount" ? Number(value) || 0 : value } : it));
+  }
+  function addItem(type: "PROVENTO" | "DESCONTO") {
+    const item: SalaryItem = { name: "", amount: 0, type };
+    if (type === "PROVENTO") setProventos(p => [...p, item]);
+    else setDescontos(d => [...d, item]);
+  }
+  function removeItem(type: "PROVENTO" | "DESCONTO", idx: number) {
+    if (type === "PROVENTO") setProventos(p => p.filter((_, i) => i !== idx));
+    else setDescontos(d => d.filter((_, i) => i !== idx));
+  }
+
+  const totalP  = proventos.reduce((a, i) => a + (Number(i.amount) || 0), 0);
+  const totalD  = descontos.reduce((a, i) => a + (Number(i.amount) || 0), 0);
+  const liquido = totalP - totalD;
+  const rowStyle = { display: "grid", gridTemplateColumns: "1fr 110px 28px", alignItems: "center", gap: 8, marginBottom: 6 };
+
+  function handleSave() {
+    const items = [
+      ...proventos.map((it, i) => ({ ...it, amount: Number(it.amount) || 0, order: i })),
+      ...descontos.map((it, i) => ({ ...it, amount: Number(it.amount) || 0, order: i })),
+    ];
+    onSave({ type: bonusType, year, payDate, baseAmount: totalP, netAmount: Math.max(0, liquido), notes: notes || null, items });
+  }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
+      {!isEditing && (
+        <div style={{ marginBottom: 18 }}>
+          <label style={{ fontSize: 12.5, fontWeight: 700, color: "var(--ink-2)", display: "block", marginBottom: 7 }}>Tipo</label>
+          <div className="seg" style={{ width: "100%" }}>
+            <button style={{ flex: 1 }} className={bonusType === "plr" ? "on" : ""} onClick={() => handleTypeChange("plr")}>PLR</button>
+            <button style={{ flex: 1 }} className={bonusType === "decimo" ? "on" : ""} onClick={() => handleTypeChange("decimo")}>Décimo Terceiro</button>
+          </div>
+        </div>
+      )}
+
+      <div style={{ marginBottom: 18 }}>
+        <div className="field">
+          <label>Data de recebimento</label>
+          <input className="orça-input" type="date" value={payDate} onChange={e => setPayDate(e.target.value)} />
+        </div>
+      </div>
+
+      {/* Proventos */}
+      <div style={{ marginBottom: 18 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+          <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: "var(--pos)" }}>Proventos</span>
+          <button className="btn btn-ghost" style={{ padding: "4px 10px", fontSize: 11 }} onClick={() => addItem("PROVENTO")}>
+            <OrcaIcon name="plus" size={12} />Adicionar
+          </button>
+        </div>
+        {proventos.map((it, i) => (
+          <div key={i} style={rowStyle}>
+            <input className="orça-input" style={{ fontSize: 13 }} value={it.name} onChange={e => setItem(proventos, setProventos, i, "name", e.target.value)} placeholder="Provento" />
+            <input className="orça-input num" style={{ fontSize: 13, textAlign: "right" }} type="number" step="0.01" value={it.amount || ""} placeholder="0,00" onChange={e => setItem(proventos, setProventos, i, "amount", e.target.value)} />
+            <button onClick={() => removeItem("PROVENTO", i)} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--ink-3)", padding: 2 }}><OrcaIcon name="dots" size={14} /></button>
+          </div>
+        ))}
+        <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 0 0", borderTop: "1px solid var(--line-2)", marginTop: 6, fontSize: 13, fontWeight: 700 }}>
+          <span>Total proventos</span><span className="num" style={{ color: "var(--pos)" }}>{formatBRL(totalP)}</span>
+        </div>
+      </div>
+
+      {/* Descontos */}
+      <div style={{ marginBottom: 18 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+          <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: "var(--neg)" }}>Descontos</span>
+          <button className="btn btn-ghost" style={{ padding: "4px 10px", fontSize: 11 }} onClick={() => addItem("DESCONTO")}>
+            <OrcaIcon name="plus" size={12} />Adicionar
+          </button>
+        </div>
+        {descontos.map((it, i) => (
+          <div key={i} style={rowStyle}>
+            <input className="orça-input" style={{ fontSize: 13 }} value={it.name} onChange={e => setItem(descontos, setDescontos, i, "name", e.target.value)} placeholder="Desconto" />
+            <input className="orça-input num" style={{ fontSize: 13, textAlign: "right" }} type="number" step="0.01" value={it.amount || ""} placeholder="0,00" onChange={e => setItem(descontos, setDescontos, i, "amount", e.target.value)} />
+            <button onClick={() => removeItem("DESCONTO", i)} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--ink-3)", padding: 2 }}><OrcaIcon name="dots" size={14} /></button>
+          </div>
+        ))}
+        <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 0 0", borderTop: "1px solid var(--line-2)", marginTop: 6, fontSize: 13, fontWeight: 700 }}>
+          <span>Total descontos</span><span className="num" style={{ color: "var(--neg)" }}>{formatBRL(totalD)}</span>
+        </div>
+      </div>
+
+      {/* Líquido */}
+      <div style={{ display: "flex", justifyContent: "space-between", padding: "12px 16px", background: liquido >= 0 ? "var(--pos-soft)" : "var(--warn-soft)", borderRadius: "var(--r-md)", marginBottom: 16 }}>
+        <span style={{ fontWeight: 800, fontSize: 15 }}>Líquido {defaults.label}</span>
+        <span className="num" style={{ fontWeight: 800, fontSize: 18, color: liquido >= 0 ? "var(--pos)" : "var(--warn)" }}>{formatBRL(liquido)}</span>
+      </div>
+
+      <div className="field" style={{ marginBottom: 16 }}>
+        <label>Observações</label>
+        <input className="orça-input" value={notes} onChange={e => setNotes(e.target.value)} placeholder="Opcional..." />
+      </div>
+
+      <div style={{ display: "flex", gap: 10 }}>
+        <button className="btn btn-ghost" style={{ flex: 1 }} onClick={onCancel}>Cancelar</button>
+        <button className="btn btn-primary" style={{ flex: 1 }} disabled={loading} onClick={handleSave}>
+          {loading ? "Salvando..." : <><OrcaIcon name="check" size={15} />Salvar {defaults.label}</>}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Bonus Display ────────────────────────────────────────────────────────────
+
+function BonusDisplay({ entry, bonusType, onEdit, onDelete }: {
+  entry: BonusEntry;
+  bonusType: BonusType;
+  onEdit: () => void;
+  onDelete: () => void;
+}) {
+  const defaults = BONUS_DEFAULTS[bonusType];
+  const proventos = entry.items.filter(i => i.type === "PROVENTO");
+  const descontos = entry.items.filter(i => i.type === "DESCONTO");
+  const totalP = proventos.reduce((a, i) => a + Number(i.amount), 0);
+  const totalD = descontos.reduce((a, i) => a + Number(i.amount), 0);
+
+  return (
+    <div className="card" style={{ overflow: "hidden" }}>
+      <div style={{ padding: "14px 20px", background: "var(--warn, #C98A1E)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <div>
+          <div style={{ fontSize: 12, fontWeight: 700, opacity: .75 }}>Bonificação · {entry.year}</div>
+          <div style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 18 }}>{defaults.label}</div>
+        </div>
+        <div style={{ textAlign: "right" }}>
+          <div style={{ fontSize: 11, opacity: .75 }}>Líquido</div>
+          <div className="num" style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 24 }}>{formatBRL(Number(entry.netAmount))}</div>
+        </div>
+      </div>
+
+      <div style={{ padding: "4px 0" }}>
+        <div className="section-label" style={{ padding: "10px 20px 4px", color: "var(--pos)" }}>Proventos</div>
+        {proventos.map((it, i) => (
+          <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "6px 20px", fontSize: 13 }}>
+            <span style={{ color: "var(--ink-2)", fontWeight: 600 }}>{it.name}</span>
+            <span className="num" style={{ fontWeight: 700, color: Number(it.amount) > 0 ? "var(--pos)" : "var(--ink-3)" }}>
+              {Number(it.amount) > 0 ? formatBRL(Number(it.amount)) : "—"}
+            </span>
+          </div>
+        ))}
+        <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 20px 10px", fontSize: 13, fontWeight: 800, borderBottom: "1px solid var(--line-2)" }}>
+          <span>Total proventos</span><span className="num" style={{ color: "var(--pos)" }}>{formatBRL(totalP)}</span>
+        </div>
+
+        <div className="section-label" style={{ padding: "10px 20px 4px", color: "var(--neg)" }}>Descontos</div>
+        {descontos.map((it, i) => (
+          <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "6px 20px", fontSize: 13 }}>
+            <span style={{ color: "var(--ink-2)", fontWeight: 600 }}>{it.name}</span>
+            <span className="num" style={{ fontWeight: 700, color: Number(it.amount) > 0 ? "var(--neg)" : "var(--ink-3)" }}>
+              {Number(it.amount) > 0 ? formatBRL(-Number(it.amount)) : "—"}
+            </span>
+          </div>
+        ))}
+        <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 20px 10px", fontSize: 13, fontWeight: 800, borderBottom: "1px solid var(--line-2)" }}>
+          <span>Total descontos</span><span className="num" style={{ color: "var(--neg)" }}>{formatBRL(-totalD)}</span>
+        </div>
+      </div>
+
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 20px", background: "var(--warn-soft)" }}>
+        <span style={{ fontWeight: 800, fontSize: 15 }}>Líquido {defaults.label}</span>
+        <span className="num" style={{ fontWeight: 800, fontSize: 20, color: "var(--warn)" }}>{formatBRL(Number(entry.netAmount))}</span>
+      </div>
+
+      <div style={{ display: "flex", gap: 8, padding: "12px 20px", borderTop: "1px solid var(--line-2)" }}>
+        <button className="btn btn-ghost" style={{ fontSize: 12, padding: "6px 12px", color: "var(--neg)" }} onClick={onDelete}>
+          <OrcaIcon name="trash" size={13} />Remover
+        </button>
+        <button className="btn btn-ghost" style={{ fontSize: 12, padding: "6px 12px", flex: 1 }} onClick={onEdit}>
+          <OrcaIcon name="edit" size={13} />Editar {defaults.label}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ─── Holerite display ─────────────────────────────────────────────────────────
 
 function Holerite({
@@ -230,6 +491,7 @@ function Holerite({
   onEditTemplate,
   onResetMonth,
   onConfirmMonth,
+  onAddBonus,
 }: {
   salary: Salary;
   source: "month" | "prev" | "template" | null;
@@ -239,6 +501,7 @@ function Holerite({
   onEditTemplate: () => void;
   onResetMonth: () => void;
   onConfirmMonth: () => void;
+  onAddBonus: () => void;
 }) {
   const proventos = salary.items.filter(i => i.type === "PROVENTO");
   const descontos = salary.items.filter(i => i.type === "DESCONTO");
@@ -316,19 +579,22 @@ function Holerite({
         <span className="num" style={{ fontWeight: 800, fontSize: 20, color: "var(--pos)" }}>{formatBRL(Number(salary.netAmount))}</span>
       </div>
 
-      {/* Actions */}
-      <div style={{ display: "flex", gap: 8, padding: "12px 20px", borderTop: "1px solid var(--line-2)" }}>
-        {source === "month" && (
-          <button className="btn btn-ghost" style={{ fontSize: 12, padding: "6px 12px", color: "var(--neg)" }} onClick={onResetMonth}>
-            <OrcaIcon name="dots" size={13} />Remover override deste mês
-          </button>
-        )}
-        <button className="btn btn-ghost" style={{ fontSize: 12, padding: "6px 12px", flex: 1 }} onClick={onEditMonth}>
-          <OrcaIcon name="edit" size={13} />Editar este mês
-        </button>
-        <button className="btn btn-ghost" style={{ fontSize: 12, padding: "6px 12px", flex: 1 }} onClick={onEditTemplate}>
+      {/* Actions — order: Editar modelo base | Editar este mês | Outros recebimentos | Remover Salário deste mês */}
+      <div style={{ display: "flex", gap: 8, padding: "12px 20px", borderTop: "1px solid var(--line-2)", flexWrap: "wrap" }}>
+        <button className="btn btn-ghost" style={{ fontSize: 12, padding: "6px 12px" }} onClick={onEditTemplate}>
           <OrcaIcon name="repeat" size={13} />Editar modelo base
         </button>
+        <button className="btn btn-ghost" style={{ fontSize: 12, padding: "6px 12px" }} onClick={onEditMonth}>
+          <OrcaIcon name="edit" size={13} />Editar este mês
+        </button>
+        <button className="btn btn-ghost" style={{ fontSize: 12, padding: "6px 12px" }} onClick={onAddBonus}>
+          <OrcaIcon name="coins" size={13} />Outros recebimentos
+        </button>
+        {source === "month" && (
+          <button className="btn btn-ghost" style={{ fontSize: 12, padding: "6px 12px", color: "var(--neg)" }} onClick={onResetMonth}>
+            <OrcaIcon name="dots" size={13} />Remover Salário deste mês
+          </button>
+        )}
       </div>
     </div>
   );
@@ -341,7 +607,7 @@ function CreditForm({ initial, onSave, onCancel, loading }: { initial?: Partial<
     description: initial?.description ?? "",
     amount: initial?.amount ? String(initial.amount) : "",
     category: initial?.category ?? "reemb",
-    date: initial?.date ? new Date(initial.date).toISOString().split("T")[0] : new Date().toISOString().split("T")[0],
+    date: initial?.date ? formatLocalDate(parseLocalDate(initial.date.split("T")[0])) : formatLocalDate(new Date()),
     notes: initial?.notes ?? "",
     isRecurring: false,
     endDate: "",
@@ -355,7 +621,7 @@ function CreditForm({ initial, onSave, onCancel, loading }: { initial?: Partial<
       type: "INCOME",
       category: form.category || null,
       notes: form.notes || null,
-      isPaid: true,
+      isPaid: false,
       isRecurring: form.isRecurring,
       endDate: form.isRecurring && form.endDate ? form.endDate : null,
       date: form.date,
@@ -371,8 +637,8 @@ function CreditForm({ initial, onSave, onCancel, loading }: { initial?: Partial<
         <div className="field"><label>Data de início</label><input className="orça-input" type="date" value={form.date} onChange={e => set("date", e.target.value)} /></div>
       </div>
 
-      {/* Recorrência */}
-      <div style={{ padding: "12px 14px", background: "var(--surface-2)", borderRadius: "var(--r-md)", border: "1px solid var(--line)" }}>
+      {/* Recorrência — só disponível ao criar, não ao editar */}
+      {!initial?.id && <div style={{ padding: "12px 14px", background: "var(--surface-2)", borderRadius: "var(--r-md)", border: "1px solid var(--line)" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: form.isRecurring ? 12 : 0 }}>
           <div>
             <div style={{ fontWeight: 700, fontSize: 13.5 }}>Crédito recorrente</div>
@@ -391,7 +657,7 @@ function CreditForm({ initial, onSave, onCancel, loading }: { initial?: Partial<
             <span className="row-meta">Deixe em branco para recorrência indefinida</span>
           </div>
         )}
-      </div>
+      </div>}
 
       <div className="field"><label>Categoria</label>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
@@ -433,6 +699,12 @@ export default function CreditosPage() {
   const [showNewCredit, setShowNewCredit] = useState(false);
   const [savingCredit, setSavingCredit] = useState(false);
 
+  // Bonus (PLR / Décimo Terceiro) state
+  const [bonusPlr,    setBonusPlr]    = useState<BonusEntry | null>(null);
+  const [bonusDecimo, setBonusDecimo] = useState<BonusEntry | null>(null);
+  const [showBonusForm, setShowBonusForm] = useState<BonusType | null>(null);
+  const [savingBonus,   setSavingBonus]   = useState(false);
+
   const fetchSalary = useCallback(async () => {
     try {
       const res = await fetch(`/api/salary?month=${month}&year=${year}`);
@@ -455,10 +727,21 @@ export default function CreditosPage() {
     }
   }, [month, year]);
 
+  const fetchBonus = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/bonus?year=${year}&month=${month}`);
+      if (!res.ok) return;
+      const data = await res.json();
+      setBonusPlr(data.plr ?? null);
+      setBonusDecimo(data.decimo ?? null);
+    } catch { /* ignore */ }
+  }, [year, month]);
+
   useEffect(() => {
     fetchSalary();
     fetchCredits();
-  }, [fetchSalary, fetchCredits]);
+    fetchBonus();
+  }, [fetchSalary, fetchCredits, fetchBonus]);
 
   async function handleSaveSalary(data: Record<string, unknown>) {
     setSavingSalary(true);
@@ -520,8 +803,8 @@ export default function CreditosPage() {
         });
       } else if (data.isRecurring) {
         // Create one transaction per month from startDate to endDate
-        const startDate = new Date(data.date as string);
-        const endDate = data.endDate ? new Date(data.endDate as string) : new Date(startDate.getFullYear(), startDate.getMonth() + 23, startDate.getDate());
+        const startDate = parseLocalDate(data.date as string);
+        const endDate = data.endDate ? parseLocalDate(data.endDate as string) : new Date(startDate.getFullYear(), startDate.getMonth() + 23, startDate.getDate());
         const groupId = `recur-${Date.now()}`;
 
         const dates: Date[] = [];
@@ -540,7 +823,7 @@ export default function CreditosPage() {
               amount: data.amount,
               type: "INCOME",
               category: data.category,
-              date: dt.toISOString().split("T")[0],
+              date: formatLocalDate(dt),
               notes: data.notes,
               isPaid: i === 0,
               groupId,
@@ -564,9 +847,37 @@ export default function CreditosPage() {
     fetchCredits();
   }
 
-  const salaryNet = salaryData?.effective ? Number(salaryData.effective.netAmount) : 0;
-  const othersTotal = credits.reduce((a, c) => a + Number(c.amount), 0);
-  const grandTotal = salaryNet + othersTotal;
+  async function handleSaveBonus(data: Record<string, unknown>) {
+    setSavingBonus(true);
+    try {
+      const res = await fetch("/api/bonus", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: "Erro desconhecido" }));
+        alert(`Erro: ${err.error}`);
+        return;
+      }
+      setShowBonusForm(null);
+      await fetchBonus();
+      await fetchCredits();
+    } finally { setSavingBonus(false); }
+  }
+
+  async function handleDeleteBonus(type: BonusType) {
+    if (!confirm(`Remover lançamento de ${BONUS_DEFAULTS[type].label} em ${monthCap}?`)) return;
+    await fetch(`/api/bonus?type=${type}&year=${year}&payMonth=${month}`, { method: "DELETE" });
+    await fetchBonus();
+    await fetchCredits();
+  }
+
+  const salaryNet    = salaryData?.effective ? Number(salaryData.effective.netAmount) : 0;
+  const bonusTotal   = (bonusPlr ? Number(bonusPlr.netAmount) : 0) + (bonusDecimo ? Number(bonusDecimo.netAmount) : 0);
+  const otherCredits = credits.filter(c => !c.groupId?.startsWith("salary-") && !c.groupId?.startsWith("bonus-") && c.bank === null);
+  const othersTotal  = otherCredits.reduce((a, c) => a + Number(c.amount), 0);
+  const grandTotal   = salaryNet + bonusTotal + othersTotal;
 
   const monthLabel = new Date(year, month - 1).toLocaleDateString("pt-BR", { month: "long", year: "numeric" });
   const monthCap = monthLabel.charAt(0).toUpperCase() + monthLabel.slice(1);
@@ -589,6 +900,26 @@ export default function CreditosPage() {
           month={0} year={0} isTemplate={true}
           onSave={handleSaveSalary} onCancel={() => setShowSalaryTemplate(false)} loading={savingSalary}
         />
+      </Modal>
+
+      {/* Bonus modal */}
+      <Modal
+        open={!!showBonusForm}
+        onClose={() => setShowBonusForm(null)}
+        title={showBonusForm ? `${BONUS_DEFAULTS[showBonusForm].label} — ${year}` : "Outros recebimentos"}
+        width={520}
+      >
+        {showBonusForm && (
+          <BonusForm
+            bonusType={showBonusForm}
+            year={year}
+            month={month}
+            initial={showBonusForm === "plr" ? bonusPlr : bonusDecimo}
+            onSave={handleSaveBonus}
+            onCancel={() => setShowBonusForm(null)}
+            loading={savingBonus}
+          />
+        )}
       </Modal>
 
       {/* Credit modals */}
@@ -619,7 +950,7 @@ export default function CreditosPage() {
           <div className="card kpi">
             <div className="kpi-label"><OrcaIcon name="arrowDown" size={14} style={{ color: "var(--pos)" }} />Total de entradas</div>
             <div className="kpi-val num" style={{ color: "var(--pos)" }}>{formatBRL(grandTotal)}</div>
-            <div className="kpi-delta" style={{ color: "var(--pos)" }}>salário + {credits.length} outros</div>
+            <div className="kpi-delta" style={{ color: "var(--pos)" }}>salário + {otherCredits.length} outros</div>
           </div>
           <div className="card kpi">
             <div className="kpi-label"><OrcaIcon name="wallet" size={14} />Salário líquido</div>
@@ -628,8 +959,10 @@ export default function CreditosPage() {
           </div>
           <div className="card kpi">
             <div className="kpi-label"><OrcaIcon name="coins" size={14} />Outros recebimentos</div>
-            <div className="kpi-val num">{formatBRL(othersTotal)}</div>
-            <div className="kpi-delta muted">{credits.length} lançamentos</div>
+            <div className="kpi-val num">{formatBRL(othersTotal + bonusTotal)}</div>
+            <div className="kpi-delta muted">
+              {otherCredits.length + (bonusPlr ? 1 : 0) + (bonusDecimo ? 1 : 0)} lançamentos
+            </div>
           </div>
         </div>
 
@@ -644,6 +977,7 @@ export default function CreditosPage() {
               onEditTemplate={() => setShowSalaryTemplate(true)}
               onResetMonth={handleResetMonth}
               onConfirmMonth={handleConfirmMonth}
+              onAddBonus={() => setShowBonusForm(bonusPlr && bonusDecimo ? "plr" : !bonusPlr ? "plr" : "decimo")}
             />
           ) : (
             <div className="card card-pad" style={{ textAlign: "center", color: "var(--ink-3)", padding: 48 }}>
@@ -656,8 +990,28 @@ export default function CreditosPage() {
             </div>
           )}
 
-          {/* Outros recebimentos */}
+          {/* PLR / Décimo Terceiro */}
           <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+            {(bonusPlr || bonusDecimo) && (
+              <>
+                {bonusPlr && (
+                  <BonusDisplay
+                    entry={bonusPlr} bonusType="plr"
+                    onEdit={() => setShowBonusForm("plr")}
+                    onDelete={() => handleDeleteBonus("plr")}
+                  />
+                )}
+                {bonusDecimo && (
+                  <BonusDisplay
+                    entry={bonusDecimo} bonusType="decimo"
+                    onEdit={() => setShowBonusForm("decimo")}
+                    onDelete={() => handleDeleteBonus("decimo")}
+                  />
+                )}
+              </>
+            )}
+
+          {/* Outros recebimentos */}
             <div className="card">
               <div className="card-head">
                 <div className="card-title"><span className="dot" style={{ background: "var(--accent)" }} />Outros recebimentos</div>
@@ -670,12 +1024,12 @@ export default function CreditosPage() {
                 <div style={{ display: "grid", placeItems: "center", padding: 40 }}>
                   <div style={{ width: 24, height: 24, borderRadius: "50%", border: "3px solid var(--accent)", borderTopColor: "transparent", animation: "spin 0.7s linear infinite" }} />
                 </div>
-              ) : credits.length === 0 ? (
+              ) : otherCredits.length === 0 ? (
                 <div style={{ textAlign: "center", color: "var(--ink-3)", padding: "32px 20px", fontSize: 13 }}>
                   Nenhum outro recebimento neste mês
                 </div>
               ) : (
-                credits.map(c => {
+                otherCredits.map(c => {
                   const cat = c.category ? CATEGORIES[c.category as CategoryKey] : null;
                   return (
                     <div className="row" key={c.id}>
@@ -696,7 +1050,7 @@ export default function CreditosPage() {
                 })
               )}
 
-              {credits.length > 0 && (
+              {otherCredits.length > 0 && (
                 <div className="row" style={{ background: "var(--pos-soft)", borderRadius: "0 0 var(--r-lg) var(--r-lg)" }}>
                   <span style={{ fontWeight: 800 }}>Total outros</span>
                   <span className="amt pos num" style={{ fontSize: 16 }}>{formatBRL(othersTotal)}</span>

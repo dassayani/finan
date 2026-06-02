@@ -30,18 +30,21 @@ export async function GET(req: NextRequest) {
   const type = searchParams.get("type");
   const expenseType = searchParams.get("expenseType");
   const bank = searchParams.get("bank");
+  const isPaid = searchParams.get("isPaid");
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const where: Record<string, any> = { userId: session.user.id };
 
   if (month && year) {
-    const start = new Date(Number(year), Number(month) - 1, 1);
-    const end = new Date(Number(year), Number(month), 0, 23, 59, 59);
+    const y = Number(year), m = Number(month);
+    const start = new Date(Date.UTC(y, m - 1, 1));
+    const end   = new Date(Date.UTC(y, m,     0, 23, 59, 59, 999));
     where.date = { gte: start, lte: end };
   }
   if (type) where.type = type;
   if (expenseType) where.expenseType = expenseType;
   if (bank) where.bank = bank;
+  if (isPaid !== null) where.isPaid = isPaid === "true";
 
   const transactions = await prisma.transaction.findMany({
     where,
@@ -51,6 +54,26 @@ export async function GET(req: NextRequest) {
   return NextResponse.json(transactions);
 }
 
+export async function DELETE(req: NextRequest) {
+  const session = await getServerSession(authOptions);
+  if (!session?.user?.id) return NextResponse.json({ error: "Não autorizado" }, { status: 401 });
+
+  const { searchParams } = new URL(req.url);
+  const groupId = searchParams.get("groupId");
+  if (!groupId) return NextResponse.json({ error: "groupId é obrigatório" }, { status: 400 });
+
+  const year = searchParams.get("year");
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const where: Record<string, any> = { groupId, userId: session.user.id };
+  if (year) {
+    const y = Number(year);
+    where.date = { gte: new Date(Date.UTC(y, 0, 1)), lte: new Date(Date.UTC(y, 11, 31, 23, 59, 59, 999)) };
+  }
+
+  await prisma.transaction.deleteMany({ where });
+  return new NextResponse(null, { status: 204 });
+}
+
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions);
   if (!session?.user?.id) return NextResponse.json({ error: "Não autorizado" }, { status: 401 });
@@ -58,35 +81,6 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const data = transactionSchema.parse(body);
-
-    // For installments, create one record per installment
-    if (data.installments && data.installments > 1) {
-      const groupId = crypto.randomUUID();
-      const baseDate = new Date(data.date);
-      const each = data.amount / data.installments;
-
-      const records = Array.from({ length: data.installments }, (_, i) => {
-        const d = new Date(baseDate.getFullYear(), baseDate.getMonth() + i, baseDate.getDate());
-        return {
-          description: `${data.description} ${i + 1}/${data.installments}`,
-          amount: each,
-          type: data.type,
-          expenseType: data.expenseType ?? null,
-          category: (data.category as CategoryKey) ?? null,
-          bank: (data.bank as BankKey) ?? null,
-          date: d,
-          notes: data.notes ?? null,
-          isPaid: i === 0 ? (data.isPaid ?? false) : false,
-          installments: data.installments,
-          installmentIndex: i + 1,
-          groupId,
-          userId: session.user.id,
-        };
-      });
-
-      await prisma.transaction.createMany({ data: records });
-      return NextResponse.json({ groupId, count: records.length }, { status: 201 });
-    }
 
     const transaction = await prisma.transaction.create({
       data: {
@@ -98,7 +92,10 @@ export async function POST(req: NextRequest) {
         bank: (data.bank as BankKey) ?? null,
         date: new Date(data.date),
         notes: data.notes ?? null,
-        isPaid: data.isPaid ?? false,
+        isPaid: data.type === "INCOME" ? false : (data.isPaid ?? false),
+        installments: data.installments ?? null,
+        installmentIndex: data.installmentIndex ?? null,
+        groupId: data.groupId ?? null,
         userId: session.user.id,
       },
     });

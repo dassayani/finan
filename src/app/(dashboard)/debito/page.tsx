@@ -1,145 +1,69 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { OrcaIcon } from "@/components/ui/orca-icon";
 import { BankBadge } from "@/components/ui/bank-badge";
-import { Modal } from "@/components/ui/modal";
 import { BANKS, CATEGORIES, formatBRL } from "@/lib/constants";
 import type { BankKey, CategoryKey } from "@/lib/constants";
 
 type ExpenseMode = "BANK_BILL" | "FIXED" | "VARIABLE";
 
+// Parse "YYYY-MM-DD" as local date (not UTC) to avoid timezone day-shift
+function parseLocalDate(s: string) {
+  const [y, m, d] = s.split("-").map(Number);
+  return new Date(y, m - 1, d);
+}
+
+// Format Date as "YYYY-MM-DD" in local time
+function formatLocalDate(d: Date) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
 const PARCEL_PRESETS = [1, 2, 3, 6, 10, 12];
 const BANK_IDS = Object.keys(BANKS) as BankKey[];
-
-interface BankFee {
-  id: string;
-  bank: string;
-  name: string;
-  amount: number;
-  billingDay: number;
-}
-
-// ─── Bank Fee Config Modal ────────────────────────────────────────────────────
-
-function BankFeeModal({ onClose }: { onClose: () => void }) {
-  const [fees, setFees] = useState<BankFee[]>([]);
-  const [selectedBank, setSelectedBank] = useState<BankKey>("bb");
-  const [name, setName] = useState("");
-  const [amount, setAmount] = useState("");
-  const [day, setDay] = useState("1");
-  const [saving, setSaving] = useState(false);
-
-  const fetchFees = useCallback(async () => {
-    const res = await fetch("/api/bank-fees");
-    if (res.ok) setFees(await res.json());
-  }, []);
-
-  useEffect(() => { fetchFees(); }, [fetchFees]);
-
-  async function addFee() {
-    if (!name || !amount) return;
-    setSaving(true);
-    await fetch("/api/bank-fees", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ bank: selectedBank, name, amount: parseFloat(amount), billingDay: parseInt(day) }),
-    });
-    setName(""); setAmount(""); setDay("1");
-    await fetchFees();
-    setSaving(false);
-  }
-
-  async function removeFee(id: string) {
-    await fetch(`/api/bank-fees/${id}`, { method: "DELETE" });
-    fetchFees();
-  }
-
-  const byBank = BANK_IDS.filter(id => fees.some(f => f.bank === id));
-
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-      <p style={{ margin: 0, fontSize: 13, color: "var(--ink-2)", lineHeight: 1.5 }}>
-        Taxas configuradas aqui aparecem automaticamente no total de cada banco na Visão do Mês.
-      </p>
-
-      {/* Existing fees by bank */}
-      {byBank.length > 0 && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          {byBank.map(bankId => (
-            <div key={bankId}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-                <BankBadge id={bankId} size={22} />
-                <span style={{ fontWeight: 700, fontSize: 13 }}>{BANKS[bankId].name}</span>
-              </div>
-              {fees.filter(f => f.bank === bankId).map(f => (
-                <div key={f.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "7px 12px", background: "var(--surface-2)", borderRadius: "var(--r-sm)", marginBottom: 4 }}>
-                  <span style={{ fontSize: 13, fontWeight: 600 }}>{f.name} <span className="row-meta">(dia {f.billingDay})</span></span>
-                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                    <span className="num" style={{ fontWeight: 700, fontSize: 13, color: "var(--neg)" }}>{formatBRL(Number(f.amount))}</span>
-                    <button onClick={() => removeFee(f.id)} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--neg)", padding: 2 }}>
-                      <OrcaIcon name="dots" size={14} />
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Add new fee */}
-      <div style={{ borderTop: "1px solid var(--line-2)", paddingTop: 16 }}>
-        <div className="section-label" style={{ marginBottom: 12 }}>Adicionar nova taxa</div>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 12 }}>
-          {BANK_IDS.map(id => (
-            <span key={id} className={`opt${selectedBank === id ? " sel" : ""}`} onClick={() => setSelectedBank(id)} style={{ cursor: "pointer", padding: "5px 8px", fontSize: 12 }}>
-              <BankBadge id={id} size={16} />{BANKS[id].name}
-            </span>
-          ))}
-        </div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 100px 60px", gap: 8, marginBottom: 10 }}>
-          <input className="orça-input" value={name} onChange={e => setName(e.target.value)} placeholder="Ex: Manutenção de conta" style={{ fontSize: 13 }} />
-          <input className="orça-input num" type="number" step="0.01" value={amount} onChange={e => setAmount(e.target.value)} placeholder="R$ 0,00" style={{ fontSize: 13 }} />
-          <input className="orça-input num" type="number" min="1" max="31" value={day} onChange={e => setDay(e.target.value)} placeholder="Dia" style={{ fontSize: 13 }} title="Dia do mês que a taxa é cobrada" />
-        </div>
-        <button className="btn btn-primary" style={{ width: "100%" }} disabled={saving || !name || !amount} onClick={addFee}>
-          <OrcaIcon name="plus" size={14} />Adicionar taxa
-        </button>
-      </div>
-
-      <button className="btn btn-ghost" style={{ width: "100%" }} onClick={onClose}>Fechar</button>
-    </div>
-  );
-}
 
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 export default function DebitoPage() {
   const router = useRouter();
   const [mode, setMode] = useState<ExpenseMode>("BANK_BILL");
-  const [selectedBank, setSelectedBank] = useState<BankKey>("bb");
+  const [txType, setTxType] = useState<"EXPENSE" | "INCOME">("EXPENSE");
+  const [selectedBank, setSelectedBank] = useState<BankKey>("nubank");
   const [selectedCat, setSelectedCat] = useState<CategoryKey>("compras");
   const [description, setDescription] = useState("");
   const [amount, setAmount] = useState("");
-  const [date, setDate] = useState(new Date().toISOString().split("T")[0]);
+  const [date, setDate] = useState(formatLocalDate(new Date()));
   const [parcelas, setParcelas] = useState(1);
-  const [manualParcelas, setManualParcelas] = useState("");
-  const [useManual, setUseManual] = useState(false);
   const [isPaid, setIsPaid] = useState(false);
   const [notes, setNotes] = useState("");
   const [repeat, setRepeat] = useState(false);
   const [repeatUntil, setRepeatUntil] = useState("");
   const [repeatPreset, setRepeatPreset] = useState<"year" | "custom">("year");
-  const [showBankFees, setShowBankFees] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [inputMode, setInputMode] = useState<"total" | "per_installment">("total");
+  const [amountOverrides, setAmountOverrides] = useState<Record<number, number>>({});
 
-  const effectiveParcelas = useManual ? (parseInt(manualParcelas) || 1) : parcelas;
-  const total = parseFloat(amount) || 0;
-  const each = effectiveParcelas > 0 ? total / effectiveParcelas : total;
+  const effectiveParcelas = Math.max(1, parcelas);
+  const amountVal = parseFloat(amount) || 0;
 
-  const baseDate = new Date(date);
+  // Clear individual overrides whenever the base inputs change
+  useEffect(() => {
+    setAmountOverrides({});
+  }, [amount, inputMode, effectiveParcelas]);
+
+  const baseEach = effectiveParcelas > 0
+    ? (inputMode === "total" ? amountVal / effectiveParcelas : amountVal)
+    : amountVal;
+
+  const installmentAmounts = Array.from({ length: effectiveParcelas }, (_, i) =>
+    amountOverrides[i] !== undefined ? amountOverrides[i] : baseEach
+  );
+
+  const installmentTotal = installmentAmounts.reduce((s, v) => s + v, 0);
+  const total = mode === "BANK_BILL" ? installmentTotal : amountVal;
+
+  const baseDate = parseLocalDate(date);
   const months = Array.from({ length: effectiveParcelas }, (_, i) => {
     const d = new Date(baseDate.getFullYear(), baseDate.getMonth() + i, baseDate.getDate());
     return { label: d.toLocaleDateString("pt-BR", { month: "short", year: "2-digit" }), date: d };
@@ -155,17 +79,17 @@ export default function DebitoPage() {
       const groupId = `grp-${Date.now()}`;
 
       if (mode === "BANK_BILL") {
-        // Create one transaction per installment
+        const isCredit = txType === "INCOME";
         const records = months.map((m, i) => ({
           description: effectiveParcelas > 1 ? `${description} ${i + 1}/${effectiveParcelas}` : description,
-          amount: each,
-          type: "EXPENSE",
-          expenseType: "BANK_BILL",
+          amount: installmentAmounts[i] ?? 0,
+          type: txType,
+          expenseType: isCredit ? null : "BANK_BILL",
           category: selectedCat,
           bank: selectedBank,
-          date: m.date.toISOString().split("T")[0],
+          date: formatLocalDate(m.date),
           notes: notes || null,
-          isPaid: i === 0 ? isPaid : false,
+          isPaid: isCredit ? false : (i === 0 ? isPaid : false),
           installments: effectiveParcelas > 1 ? effectiveParcelas : null,
           installmentIndex: effectiveParcelas > 1 ? i + 1 : null,
           groupId: effectiveParcelas > 1 ? groupId : null,
@@ -176,8 +100,8 @@ export default function DebitoPage() {
         ));
       } else {
         // Fixed or Variable — optionally repeat monthly
-        const startDate = new Date(date);
-        const endDate = repeatEnd ? new Date(repeatEnd) : null;
+        const startDate = parseLocalDate(date);
+        const endDate = repeatEnd ? parseLocalDate(repeatEnd) : null;
 
         const dates: Date[] = [startDate];
         if (repeat && endDate) {
@@ -199,7 +123,7 @@ export default function DebitoPage() {
               expenseType: mode,
               category: selectedCat,
               bank: selectedBank || null,
-              date: d.toISOString().split("T")[0],
+              date: formatLocalDate(d),
               notes: notes || null,
               isPaid: i === 0 ? isPaid : false,
               groupId: dates.length > 1 ? groupId : null,
@@ -222,9 +146,6 @@ export default function DebitoPage() {
 
   return (
     <>
-      <Modal open={showBankFees} onClose={() => setShowBankFees(false)} title="Configurar taxas dos bancos" width={520}>
-        <BankFeeModal onClose={() => setShowBankFees(false)} />
-      </Modal>
 
       <div className="topbar">
         <div className="topbar-l">
@@ -232,10 +153,23 @@ export default function DebitoPage() {
           <div className="page-title">Lançar Débito</div>
         </div>
         <div className="topbar-r">
-          <button className="btn btn-ghost" onClick={() => setShowBankFees(true)}>
-            <OrcaIcon name="settings" size={15} />Taxas dos bancos
-          </button>
-          <button className="btn btn-ghost" onClick={() => router.back()}>Cancelar</button>
+          <button className="btn btn-ghost" onClick={() => {
+            setMode("BANK_BILL");
+            setTxType("EXPENSE");
+            setSelectedBank("nubank");
+            setSelectedCat("compras");
+            setDescription("");
+            setAmount("");
+            setDate(formatLocalDate(new Date()));
+            setParcelas(1);
+            setIsPaid(false);
+            setNotes("");
+            setRepeat(false);
+            setRepeatUntil("");
+            setRepeatPreset("year");
+            setInputMode("total");
+            setAmountOverrides({});
+          }}>Limpar Dados</button>
           <button className="btn btn-primary" disabled={saving || !description || !amount} onClick={handleSave}>
             <OrcaIcon name="check" size={16} />{saving ? "Salvando..." : "Salvar lançamento"}
           </button>
@@ -254,7 +188,7 @@ export default function DebitoPage() {
                 const cfg = modeConfig[m];
                 const active = mode === m;
                 return (
-                  <div key={m} onClick={() => setMode(m)} style={{
+                  <div key={m} onClick={() => { setMode(m); if (m !== "BANK_BILL") setTxType("EXPENSE"); }} style={{
                     padding: "12px 14px", borderRadius: "var(--r-md)", cursor: "pointer",
                     border: `2px solid ${active ? "var(--accent)" : "var(--line)"}`,
                     background: active ? "var(--accent-soft)" : "var(--surface)",
@@ -274,7 +208,19 @@ export default function DebitoPage() {
           {/* Bank selector (BANK_BILL only) */}
           {mode === "BANK_BILL" && (
             <div className="card card-pad">
-              <div className="section-label" style={{ marginBottom: 10 }}>Banco do cartão</div>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+                <div className="section-label">Banco do cartão</div>
+                <div style={{ display: "flex", gap: 6 }}>
+                  {([["EXPENSE", "⬇ Débito"], ["INCOME", "⬆ Crédito / Estorno"]] as const).map(([t, lbl]) => (
+                    <button key={t} onClick={() => setTxType(t)} style={{
+                      padding: "5px 12px", fontSize: 12, fontWeight: 700, borderRadius: "var(--r-sm)", cursor: "pointer",
+                      border: `1.5px solid ${txType === t ? (t === "INCOME" ? "var(--pos, #1a7c3a)" : "var(--accent)") : "var(--line)"}`,
+                      background: txType === t ? (t === "INCOME" ? "var(--pos-soft, #e6f4ea)" : "var(--accent-soft)") : "var(--surface)",
+                      color: txType === t ? (t === "INCOME" ? "var(--pos, #1a7c3a)" : "var(--accent)") : "var(--ink-3)",
+                    }}>{lbl}</button>
+                  ))}
+                </div>
+              </div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
                 {BANK_IDS.map(id => {
                   const active = selectedBank === id;
@@ -295,27 +241,93 @@ export default function DebitoPage() {
             </div>
           )}
 
-          {/* Description + Amount */}
+          {/* Description + Amount + Parcelas */}
           <div className="card card-pad">
-            <div style={{ display: "grid", gridTemplateColumns: "1.6fr 1fr", gap: 14, marginBottom: 14 }}>
+            {/* Row 1: Descrição | Valor | Toggle modo */}
+            <div style={{ display: "grid", gridTemplateColumns: mode === "BANK_BILL" ? "1.6fr 1fr auto" : "1.6fr 1fr", gap: 14, marginBottom: 14, alignItems: "end" }}>
               <div className="field">
                 <label>Descrição</label>
                 <input className="orça-input" value={description} onChange={e => setDescription(e.target.value)} placeholder={mode === "BANK_BILL" ? "Ex: Supermercado, Amazon..." : "Ex: Condomínio, Internet..."} />
               </div>
               <div className="field">
-                <label>Valor{mode === "BANK_BILL" && effectiveParcelas > 1 ? " total" : ""}</label>
+                <label>
+                  {mode === "BANK_BILL"
+                    ? (inputMode === "per_installment" ? "Valor por parcela" : effectiveParcelas > 1 ? "Valor total" : "Valor")
+                    : "Valor"}
+                </label>
                 <div className="input-prefix">
                   <span className="pf">R$</span>
                   <input className="orça-input num" type="number" step="0.01" value={amount} onChange={e => setAmount(e.target.value)} style={{ paddingLeft: 34 }} placeholder="0,00" />
                 </div>
               </div>
+              {mode === "BANK_BILL" && (
+                <div style={{ display: "flex", flexDirection: "column", gap: 4, paddingBottom: 2 }}>
+                  {([["total", "÷ total"], ["per_installment", "× parcela"]] as const).map(([m, lbl]) => (
+                    <button key={m} onClick={() => setInputMode(m)} style={{
+                      padding: "5px 10px", fontSize: 11.5, fontWeight: 700, borderRadius: "var(--r-sm)", cursor: "pointer",
+                      border: `1.5px solid ${inputMode === m ? "var(--accent)" : "var(--line)"}`,
+                      background: inputMode === m ? "var(--accent-soft)" : "var(--surface)",
+                      color: inputMode === m ? "var(--accent)" : "var(--ink-3)",
+                      whiteSpace: "nowrap",
+                    }}>{lbl}</button>
+                  ))}
+                </div>
+              )}
             </div>
 
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+            {/* Row 2: Data | Parcelas (BANK_BILL) */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
               <div className="field">
                 <label>Data {mode === "BANK_BILL" ? "da compra" : "de vencimento"}</label>
                 <input className="orça-input" type="date" value={date} onChange={e => setDate(e.target.value)} />
               </div>
+              {mode === "BANK_BILL" ? (
+                <div className="field">
+                  <label>Parcelas</label>
+                  <input
+                    className="orça-input num"
+                    type="number" min="1" max="120"
+                    value={parcelas}
+                    onChange={e => setParcelas(Math.max(1, parseInt(e.target.value) || 1))}
+                    style={{ fontWeight: 700, marginBottom: 8 }}
+                  />
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
+                    {PARCEL_PRESETS.map(n => (
+                      <button key={n} onClick={() => setParcelas(n)} style={{
+                        padding: "4px 10px", borderRadius: "var(--r-sm)", fontSize: 12,
+                        border: `1.5px solid ${parcelas === n ? "var(--accent)" : "var(--line)"}`,
+                        background: parcelas === n ? "var(--accent-soft)" : "var(--surface)",
+                        color: parcelas === n ? "var(--accent)" : "var(--ink-2)",
+                        fontWeight: 700, cursor: "pointer",
+                      }}>{n === 1 ? "À vista" : `${n}x`}</button>
+                    ))}
+                  </div>
+                  {amountVal > 0 && effectiveParcelas > 1 && (
+                    <div className="row-meta" style={{ marginTop: 8 }}>
+                      {inputMode === "total"
+                        ? <>{effectiveParcelas}x de <b className="num" style={{ color: "var(--ink)" }}>{formatBRL(amountVal / effectiveParcelas)}</b></>
+                        : <>Total: <b className="num" style={{ color: "var(--ink)" }}>{formatBRL(amountVal * effectiveParcelas)}</b></>
+                      }
+                      {" · "}última em {months[months.length - 1]?.label}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="field">
+                  <label>Categoria</label>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                    {(Object.entries(CATEGORIES) as [CategoryKey, typeof CATEGORIES[CategoryKey]][]).map(([k, c]) => (
+                      <span key={k} className={`opt${selectedCat === k ? " sel" : ""}`} onClick={() => setSelectedCat(k as CategoryKey)} style={{ cursor: "pointer", fontSize: 12, padding: "5px 10px" }}>
+                        <span style={{ width: 7, height: 7, borderRadius: "50%", background: c.color }} />{c.label}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Row 3: Categoria (BANK_BILL only — outros modos já mostram acima) */}
+            {mode === "BANK_BILL" && (
               <div className="field">
                 <label>Categoria</label>
                 <select className="orça-input" value={selectedCat} onChange={e => setSelectedCat(e.target.value as CategoryKey)}>
@@ -324,49 +336,8 @@ export default function DebitoPage() {
                   ))}
                 </select>
               </div>
-            </div>
+            )}
           </div>
-
-          {/* Parcelamento (BANK_BILL) */}
-          {mode === "BANK_BILL" && (
-            <div className="card card-pad">
-              <div className="section-label" style={{ marginBottom: 10 }}>Parcelamento</div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
-                {PARCEL_PRESETS.map(n => (
-                  <button key={n} onClick={() => { setParcelas(n); setUseManual(false); }} style={{
-                    padding: "8px 14px", borderRadius: "var(--r-sm)", border: `2px solid ${!useManual && parcelas === n ? "var(--accent)" : "var(--line)"}`,
-                    background: !useManual && parcelas === n ? "var(--accent-soft)" : "var(--surface)",
-                    color: !useManual && parcelas === n ? "var(--accent)" : "var(--ink-2)",
-                    fontWeight: 700, fontSize: 13.5, cursor: "pointer",
-                  }}>{n === 1 ? "À vista" : `${n}x`}</button>
-                ))}
-                {/* Manual input */}
-                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                  <input
-                    className="orça-input num"
-                    type="number" min="2" max="120"
-                    value={manualParcelas}
-                    onChange={e => { setManualParcelas(e.target.value); setUseManual(true); }}
-                    onFocus={() => setUseManual(true)}
-                    placeholder="__x"
-                    style={{
-                      width: 64, textAlign: "center", fontSize: 13.5, fontWeight: 700,
-                      border: `2px solid ${useManual ? "var(--accent)" : "var(--line)"}`,
-                      background: useManual ? "var(--accent-soft)" : "var(--surface)",
-                      color: useManual ? "var(--accent)" : "var(--ink-2)",
-                    }}
-                  />
-                  <span style={{ fontSize: 12, color: "var(--ink-3)", fontWeight: 600 }}>manual</span>
-                </div>
-              </div>
-              {total > 0 && effectiveParcelas > 1 && (
-                <div className="row-meta" style={{ marginTop: 10 }}>
-                  {effectiveParcelas}x de <b className="num" style={{ color: "var(--ink)" }}>{formatBRL(each)}</b>
-                  {" · "}1ª em {months[0]?.label}, última em {months[months.length - 1]?.label}
-                </div>
-              )}
-            </div>
-          )}
 
           {/* Repetir mensalmente (FIXED / VARIABLE) */}
           {(mode === "FIXED" || mode === "VARIABLE") && (
@@ -453,10 +424,12 @@ export default function DebitoPage() {
         <div style={{ display: "flex", flexDirection: "column", gap: 12, position: "sticky", top: 80 }}>
           <div className="card" style={{ overflow: "hidden" }}>
             {mode === "BANK_BILL" ? (
-              <div style={{ padding: "14px 18px", background: BANKS[selectedBank].soft, borderBottom: "1px solid var(--line-2)", display: "flex", alignItems: "center", gap: 10 }}>
+              <div style={{ padding: "14px 18px", background: txType === "INCOME" ? "var(--pos-soft, #e6f4ea)" : BANKS[selectedBank].soft, borderBottom: "1px solid var(--line-2)", display: "flex", alignItems: "center", gap: 10 }}>
                 <BankBadge id={selectedBank} size={28} />
                 <div>
-                  <div style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 15 }}>Lançamento automático</div>
+                  <div style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 15, color: txType === "INCOME" ? "var(--pos, #1a7c3a)" : "inherit" }}>
+                    {txType === "INCOME" ? "Crédito / Estorno" : "Dados do Lançamento"}
+                  </div>
                   <div className="row-meta">{BANKS[selectedBank].name}</div>
                 </div>
               </div>
@@ -476,24 +449,28 @@ export default function DebitoPage() {
                 <span style={{ fontWeight: 700, fontSize: 14 }}>{description || "Descrição"}</span>
               </div>
               {selectedCat && <div className="row-meta" style={{ marginBottom: 8 }}>{CATEGORIES[selectedCat]?.label}</div>}
-              <div className="num" style={{ fontFamily: "var(--font-display)", fontSize: 26, fontWeight: 700, color: "var(--neg)" }}>
-                {total > 0 ? formatBRL(-total) : "R$ —"}
+              <div className="num" style={{ fontFamily: "var(--font-display)", fontSize: 26, fontWeight: 700, color: txType === "INCOME" ? "var(--pos, #1a7c3a)" : "var(--neg)" }}>
+                {total > 0 ? (txType === "INCOME" ? formatBRL(total) : formatBRL(-total)) : "R$ —"}
               </div>
               {mode === "BANK_BILL" && effectiveParcelas > 1 && (
-                <div className="row-meta">distribuído em {effectiveParcelas} meses</div>
+                <div className="row-meta">distribuído em {effectiveParcelas} parcelas</div>
               )}
               {(mode === "FIXED" || mode === "VARIABLE") && repeat && repeatEnd && (
                 <div className="row-meta">repete mensalmente até {new Date(repeatEnd).toLocaleDateString("pt-BR", { month: "long", year: "numeric" })}</div>
               )}
             </div>
 
-            {/* Installments preview */}
+            {/* Installments preview — editable */}
             {mode === "BANK_BILL" && effectiveParcelas > 1 && months.length > 0 && (
               <>
                 <div className="divider" />
-                <div style={{ padding: "6px 0", maxHeight: 300, overflowY: "auto" }}>
+                <div style={{ padding: "4px 18px 6px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <span className="section-label">Parcelas</span>
+                  <span style={{ fontSize: 11, color: "var(--ink-3)" }}>edite os valores individuais</span>
+                </div>
+                <div style={{ padding: "0 0 6px", maxHeight: 320, overflowY: "auto" }}>
                   {months.map((m, i) => (
-                    <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 18px" }}>
+                    <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "7px 18px" }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                         <span style={{ width: 26, height: 26, borderRadius: 8, background: i === 0 ? "var(--accent)" : "var(--surface-3)", color: i === 0 ? "#fff" : "var(--ink-3)", display: "grid", placeItems: "center", fontSize: 11, fontWeight: 800, flex: "0 0 auto" }}>{i + 1}</span>
                         <div>
@@ -501,9 +478,26 @@ export default function DebitoPage() {
                           <div className="row-meta">Parcela {i + 1}/{effectiveParcelas}</div>
                         </div>
                       </div>
-                      <span className="amt neg num">{formatBRL(-each)}</span>
+                      <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                        <span style={{ fontSize: 11, color: "var(--ink-3)", fontWeight: 600 }}>R$</span>
+                        <input
+                          className="orça-input num"
+                          type="number"
+                          step="0.01"
+                          value={installmentAmounts[i] !== undefined ? String(Math.round((installmentAmounts[i] ?? 0) * 100) / 100) : ""}
+                          onChange={e => {
+                            const val = parseFloat(e.target.value) || 0;
+                            setAmountOverrides(prev => ({ ...prev, [i]: val }));
+                          }}
+                          style={{ width: 82, textAlign: "right", fontSize: 13, fontWeight: 700, color: "var(--neg)", padding: "4px 8px", border: "1px solid var(--line-2)", borderRadius: "var(--r-sm)" }}
+                        />
+                      </div>
                     </div>
                   ))}
+                  <div style={{ padding: "8px 18px 4px", borderTop: "1px solid var(--line-2)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <span className="row-meta">Total</span>
+                    <span className="num" style={{ fontSize: 14, fontWeight: 700, color: "var(--neg)" }}>{formatBRL(-installmentTotal)}</span>
+                  </div>
                 </div>
               </>
             )}

@@ -72,64 +72,67 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const { items, ...data } = salarySchema.parse(body);
 
-    const salary = await prisma.salary.upsert({
-      where: { userId_month_year: { userId: session.user.id, month: data.month, year: data.year } },
-      create: {
-        ...data,
-        userId: session.user.id,
-        items: { create: items.map((it, i) => ({ ...it, order: it.order ?? i })) },
-      },
-      update: {
-        ...data,
-        items: {
-          deleteMany: {},
-          create: items.map((it, i) => ({ ...it, order: it.order ?? i })),
-        },
-      },
-      include: { items: { orderBy: { order: "asc" } } },
-    });
-
-    // For a specific month (not template), upsert the INCOME transaction so it
-    // appears in the cash flow and credits list automatically
-    if (data.month > 0 && data.netAmount > 0) {
-      const payDay = data.payDay ?? 5;
-      const txDate = new Date(data.year, data.month - 1, payDay);
-
-      // Find existing salary transaction for this month (tagged with salary groupId)
-      const existing = await prisma.transaction.findFirst({
-        where: {
+    const salary = await prisma.$transaction(async (tx) => {
+      const saved = await tx.salary.upsert({
+        where: { userId_month_year: { userId: session.user.id, month: data.month, year: data.year } },
+        create: {
+          ...data,
           userId: session.user.id,
-          type: "INCOME",
-          category: "trab",
-          date: {
-            gte: new Date(data.year, data.month - 1, 1),
-            lte: new Date(data.year, data.month, 0, 23, 59, 59),
-          },
-          groupId: `salary-${session.user.id}`,
+          items: { create: items.map((it, i) => ({ ...it, order: it.order ?? i })) },
         },
+        update: {
+          ...data,
+          items: {
+            deleteMany: {},
+            create: items.map((it, i) => ({ ...it, order: it.order ?? i })),
+          },
+        },
+        include: { items: { orderBy: { order: "asc" } } },
       });
 
-      if (existing) {
-        await prisma.transaction.update({
-          where: { id: existing.id },
-          data: { amount: data.netAmount, date: txDate, notes: data.notes ?? null },
-        });
-      } else {
-        await prisma.transaction.create({
-          data: {
-            description: "Salário CLT",
-            amount: data.netAmount,
+      // For a specific month (not template), upsert the INCOME transaction
+      if (data.month > 0 && data.netAmount > 0) {
+        const payDay = data.payDay ?? 5;
+        const txDate = new Date(Date.UTC(data.year, data.month - 1, payDay));
+        const groupId = `salary-${session.user.id}`;
+
+        const existing = await tx.transaction.findFirst({
+          where: {
+            userId: session.user.id,
             type: "INCOME",
             category: "trab",
-            date: txDate,
-            notes: data.notes ?? null,
-            isPaid: true,
-            groupId: `salary-${session.user.id}`,
-            userId: session.user.id,
+            date: {
+              gte: new Date(Date.UTC(data.year, data.month - 1, 1)),
+              lte: new Date(Date.UTC(data.year, data.month, 0, 23, 59, 59, 999)),
+            },
+            groupId,
           },
         });
+
+        if (existing) {
+          await tx.transaction.update({
+            where: { id: existing.id },
+            data: { amount: data.netAmount, date: txDate, notes: data.notes ?? null },
+          });
+        } else {
+          await tx.transaction.create({
+            data: {
+              description: "Salário CLT",
+              amount: data.netAmount,
+              type: "INCOME",
+              category: "trab",
+              date: txDate,
+              notes: data.notes ?? null,
+              isPaid: false,
+              groupId,
+              userId: session.user.id,
+            },
+          });
+        }
       }
-    }
+
+      return saved;
+    });
 
     return NextResponse.json(salary, { status: 201 });
   } catch (error) {

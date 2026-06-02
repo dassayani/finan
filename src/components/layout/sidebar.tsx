@@ -23,6 +23,7 @@ const NAV_GROUPS = [
   {
     label: "Carteiras",
     items: [
+      { href: "/bancos", label: "Bancos", icon: "wallet" },
       { href: "/investimentos", label: "Investimentos", icon: "trend" },
       { href: "/assinaturas", label: "Assinaturas", icon: "repeat" },
     ],

@@ -15,9 +15,10 @@ export async function GET(req: NextRequest) {
   const where: Record<string, any> = { userId: session.user.id, type: "INCOME" };
 
   if (month && year) {
+    const y = Number(year), m = Number(month);
     where.date = {
-      gte: new Date(Number(year), Number(month) - 1, 1),
-      lte: new Date(Number(year), Number(month), 0, 23, 59, 59),
+      gte: new Date(Date.UTC(y, m - 1, 1)),
+      lte: new Date(Date.UTC(y, m, 0, 23, 59, 59, 999)),
     };
   }
 
