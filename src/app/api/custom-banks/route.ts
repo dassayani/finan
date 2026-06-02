@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { z } from "zod";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import type { Prisma } from "@prisma/client";
 
 const feeSchema = z.object({
   name: z.string().min(1),
@@ -39,7 +40,7 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const data = schema.parse(body);
 
-    const bank = await prisma.$transaction(async (tx) => {
+    const bank = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       const created = await tx.customBank.create({
         data: { name: data.name, short: data.short, color: data.color, userId: session.user.id },
       });

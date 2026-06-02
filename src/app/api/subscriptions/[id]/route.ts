@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import type { Prisma } from "@prisma/client";
 
 interface MemberInput {
   id?: string;
@@ -27,7 +28,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   }
 
   // Diff existing members to preserve payment history — all in one transaction
-  const sub = await prisma.$transaction(async (tx) => {
+  const sub = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
     const existingMembers = await tx.subscriptionMember.findMany({
       where: { subscriptionId: id },
     });

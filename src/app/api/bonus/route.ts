@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { z } from "zod";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import type { Prisma } from "@prisma/client";
 
 // Encode: type + payMonth into a unique month key stored in Salary.month
 // PLR base = 1400  → PLR June = 1406, PLR December = 1412
@@ -73,7 +74,7 @@ export async function POST(req: NextRequest) {
     const label   = type === "plr" ? "PLR" : "Décimo Terceiro";
     const groupId = `bonus-${type}-${data.year}-${payMonth}-${session.user.id}`;
 
-    await prisma.$transaction(async (tx) => {
+    await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       await tx.salary.upsert({
         where: { userId_month_year: { userId: session.user.id, month: salaryMonth, year: data.year } },
         create: {

@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { z } from "zod";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import type { Prisma } from "@prisma/client";
 
 const itemSchema = z.object({
   name: z.string().min(1),
@@ -72,7 +73,7 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const { items, ...data } = salarySchema.parse(body);
 
-    const salary = await prisma.$transaction(async (tx) => {
+    const salary = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       const saved = await tx.salary.upsert({
         where: { userId_month_year: { userId: session.user.id, month: data.month, year: data.year } },
         create: {
