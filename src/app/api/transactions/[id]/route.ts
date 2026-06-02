@@ -3,7 +3,7 @@ import { getServerSession } from "next-auth";
 import { z } from "zod";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import type { CategoryKey, BankKey } from "@prisma/client";
+import type { CategoryKey, BankKey } from "@/lib/constants";
 
 const updateSchema = z.object({
   description: z.string().min(1).optional(),
