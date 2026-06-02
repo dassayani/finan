@@ -115,7 +115,7 @@ export default function InvestimentosPage() {
       </div>
 
       <div className="content">
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 16, marginBottom: 18 }}>
+        <div className="r-kpi-4" style={{ marginBottom: 18 }}>
           <div className="card kpi"><div className="kpi-label"><OrcaIcon name="wallet" size={14} style={{ color: "var(--accent)" }} />Patrimônio</div><div className="kpi-val num">{formatBRL(total)}</div></div>
           <div className="card kpi"><div className="kpi-label"><OrcaIcon name="trend" size={14} style={{ color: "var(--pos)" }} />Rend. no mês</div><div className="kpi-val sm num" style={{ color: "var(--pos)" }}>{formatBRL(rendimento, { sign: true })}</div><div className="kpi-delta" style={{ color: "var(--pos)" }}>{(wReturn * 100).toFixed(1)}% a.a. médio</div></div>
           <div className="card kpi"><div className="kpi-label"><OrcaIcon name="repeat" size={14} />Aporte mensal</div><div className="kpi-val sm num">{formatBRL(aporte)}</div></div>
@@ -131,7 +131,7 @@ export default function InvestimentosPage() {
             <button className="btn btn-primary" style={{ marginTop: 16 }} onClick={() => setShowNew(true)}><OrcaIcon name="plus" size={15} />Adicionar ativo</button>
           </div>
         ) : (
-          <div style={{ display: "grid", gridTemplateColumns: "320px 1fr", gap: 16, alignItems: "start" }}>
+          <div className="r-grid-sidebar" style={{ gap: 16 }}>
             <div className="card card-pad">
               <div className="section-label" style={{ marginBottom: 16 }}>Alocação por classe</div>
               {total > 0 && (
@@ -163,7 +163,7 @@ export default function InvestimentosPage() {
                     <span className="amt num" style={{ minWidth: 100, textAlign: "right", fontSize: 15 }}>{formatBRL(Number(it.value))}</span>
                     <div style={{ display: "flex", gap: 4 }}>
                       <button onClick={() => setEditInv(it)} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--ink-3)", padding: 4, borderRadius: 6 }}><OrcaIcon name="edit" size={15} /></button>
-                      <button onClick={() => handleDelete(it.id, it.name)} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--neg)", padding: 4, borderRadius: 6 }}><OrcaIcon name="dots" size={15} /></button>
+                      <button onClick={() => handleDelete(it.id, it.name)} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--neg)", padding: 4, borderRadius: 6 }}><OrcaIcon name="trash" size={15} /></button>
                     </div>
                   </div>
                 </div>

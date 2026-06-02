@@ -501,7 +501,7 @@ export default function AssinaturasPage() {
 
       <div className="content">
         {/* KPIs */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr 1fr", gap: 14, marginBottom: 20 }}>
+        <div className="r-kpi-5">
           <div className="card kpi">
             <div className="kpi-label"><OrcaIcon name="repeat" size={13} />Mensais</div>
             <div className="kpi-val sm num">{formatBRL(totalMensalBruto)}</div>

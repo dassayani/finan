@@ -176,7 +176,7 @@ export default function DebitoPage() {
         </div>
       </div>
 
-      <div className="content" style={{ display: "grid", gridTemplateColumns: "1fr 360px", gap: 20, alignItems: "start" }}>
+      <div className="content r-grid-preview">
         {/* FORM */}
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
 

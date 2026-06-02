@@ -192,7 +192,7 @@ export default function DashboardPage() {
         <div className="content">
 
           {/* KPIs */}
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 14, marginBottom: 20 }}>
+          <div className="r-kpi-4">
             <div className="card kpi">
               <div className="kpi-label"><OrcaIcon name="arrowDown" size={13} style={{ color: "var(--pos)" }} />Receitas</div>
               <div className="kpi-val sm num" style={{ color: "var(--pos)" }}>{totalIncome > 0 ? formatBRL(totalIncome) : "—"}</div>
@@ -245,7 +245,7 @@ export default function DashboardPage() {
               <p style={{ fontSize: 13, margin: 0 }}>Lance despesas para ver a análise por categoria.</p>
             </div>
           ) : (
-            <div style={{ display: "grid", gridTemplateColumns: "1.6fr 1fr", gap: 16, alignItems: "start" }}>
+            <div className="r-grid-dash">
 
               {/* Category breakdown — decision focus */}
               <div className="card card-pad">
@@ -359,7 +359,7 @@ export default function DashboardPage() {
         <div className="content">
 
           {/* KPIs */}
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 14, marginBottom: 20 }}>
+          <div className="r-kpi-4">
             <div className="card kpi">
               <div className="kpi-label"><OrcaIcon name="arrowDown" size={13} style={{ color: "var(--pos)" }} />Recebido no ano</div>
               <div className="kpi-val sm num" style={{ color: "var(--pos)" }}>{formatBRL(incomeReal)}</div>
@@ -440,7 +440,7 @@ export default function DashboardPage() {
               <div className="card-title">Saldo mês a mês</div>
               {hasProjection && <span className="row-meta">Tracejado = projetado</span>}
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(12, 1fr)", gap: 8 }}>
+            <div className="r-months-grid">
               {yearData.map((m, i) => {
                 const saldo = m.income - m.expense;
                 const isCur = i === now.getMonth() && year === now.getFullYear();

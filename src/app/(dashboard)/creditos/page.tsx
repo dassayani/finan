@@ -207,7 +207,7 @@ function SalaryForm({
               value={it.amount || ""} placeholder="0,00"
               onChange={e => setItem(proventos, setProventos, i, "amount", e.target.value)} />
             <button onClick={() => removeItem("PROVENTO", i)} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--ink-3)", padding: 2 }}>
-              <OrcaIcon name="dots" size={14} />
+              <OrcaIcon name="trash" size={14} />
             </button>
           </div>
         ))}
@@ -233,7 +233,7 @@ function SalaryForm({
               value={it.amount || ""} placeholder="0,00"
               onChange={e => setItem(descontos, setDescontos, i, "amount", e.target.value)} />
             <button onClick={() => removeItem("DESCONTO", i)} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--ink-3)", padding: 2 }}>
-              <OrcaIcon name="dots" size={14} />
+              <OrcaIcon name="trash" size={14} />
             </button>
           </div>
         ))}
@@ -359,7 +359,7 @@ function BonusForm({ bonusType: initialType, year, month, initial, onSave, onCan
           <div key={i} style={rowStyle}>
             <input className="orça-input" style={{ fontSize: 13 }} value={it.name} onChange={e => setItem(proventos, setProventos, i, "name", e.target.value)} placeholder="Provento" />
             <input className="orça-input num" style={{ fontSize: 13, textAlign: "right" }} type="number" step="0.01" value={it.amount || ""} placeholder="0,00" onChange={e => setItem(proventos, setProventos, i, "amount", e.target.value)} />
-            <button onClick={() => removeItem("PROVENTO", i)} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--ink-3)", padding: 2 }}><OrcaIcon name="dots" size={14} /></button>
+            <button onClick={() => removeItem("PROVENTO", i)} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--ink-3)", padding: 2 }}><OrcaIcon name="trash" size={14} /></button>
           </div>
         ))}
         <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 0 0", borderTop: "1px solid var(--line-2)", marginTop: 6, fontSize: 13, fontWeight: 700 }}>
@@ -379,7 +379,7 @@ function BonusForm({ bonusType: initialType, year, month, initial, onSave, onCan
           <div key={i} style={rowStyle}>
             <input className="orça-input" style={{ fontSize: 13 }} value={it.name} onChange={e => setItem(descontos, setDescontos, i, "name", e.target.value)} placeholder="Desconto" />
             <input className="orça-input num" style={{ fontSize: 13, textAlign: "right" }} type="number" step="0.01" value={it.amount || ""} placeholder="0,00" onChange={e => setItem(descontos, setDescontos, i, "amount", e.target.value)} />
-            <button onClick={() => removeItem("DESCONTO", i)} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--ink-3)", padding: 2 }}><OrcaIcon name="dots" size={14} /></button>
+            <button onClick={() => removeItem("DESCONTO", i)} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--ink-3)", padding: 2 }}><OrcaIcon name="trash" size={14} /></button>
           </div>
         ))}
         <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 0 0", borderTop: "1px solid var(--line-2)", marginTop: 6, fontSize: 13, fontWeight: 700 }}>
@@ -592,7 +592,7 @@ function Holerite({
         </button>
         {source === "month" && (
           <button className="btn btn-ghost" style={{ fontSize: 12, padding: "6px 12px", color: "var(--neg)" }} onClick={onResetMonth}>
-            <OrcaIcon name="dots" size={13} />Remover Salário deste mês
+            <OrcaIcon name="trash" size={13} />Remover Salário deste mês
           </button>
         )}
       </div>
@@ -946,7 +946,7 @@ export default function CreditosPage() {
 
       <div className="content">
         {/* KPIs */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16, marginBottom: 20 }}>
+        <div className="r-kpi-3">
           <div className="card kpi">
             <div className="kpi-label"><OrcaIcon name="arrowDown" size={14} style={{ color: "var(--pos)" }} />Total de entradas</div>
             <div className="kpi-val num" style={{ color: "var(--pos)" }}>{formatBRL(grandTotal)}</div>
@@ -966,7 +966,7 @@ export default function CreditosPage() {
           </div>
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "1.1fr .9fr", gap: 16, alignItems: "start" }}>
+        <div className="r-grid-credits">
           {/* Holerite */}
           {salaryData?.effective ? (
             <Holerite
@@ -1043,7 +1043,7 @@ export default function CreditosPage() {
                       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                         <span className="amt pos num">{formatBRL(Number(c.amount), { sign: true })}</span>
                         <button onClick={() => setEditCredit(c)} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--ink-3)", padding: 4, borderRadius: 6 }}><OrcaIcon name="edit" size={14} /></button>
-                        <button onClick={() => handleDeleteCredit(c.id, c.description)} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--neg)", padding: 4, borderRadius: 6 }}><OrcaIcon name="dots" size={14} /></button>
+                        <button onClick={() => handleDeleteCredit(c.id, c.description)} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--neg)", padding: 4, borderRadius: 6 }}><OrcaIcon name="trash" size={14} /></button>
                       </div>
                     </div>
                   );

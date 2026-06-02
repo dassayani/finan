@@ -152,7 +152,7 @@ function EntrySection({
 
 function BankCard({
   name, short, color, textColor,
-  balance, prevBalance, fees, billTotal, showCreditCard = true, investments, entradas, saidas,
+  balance, prevBalance, fees, billTotal, estornoTotal = 0, showCreditCard = true, investments, entradas, saidas,
   onSaveBalance, onClearBalance, onAddFee, onDeleteFee, onAddEntry, onDeleteEntry,
   isCustom, onDeleteBank, isFuture = false,
 }: {
@@ -161,6 +161,7 @@ function BankCard({
   prevBalance: number | null;
   fees: CardFee[];
   billTotal: number;
+  estornoTotal?: number;
   showCreditCard?: boolean;
   investments: CardInvestment[];
   entradas: CardEntry[];
@@ -214,7 +215,8 @@ function BankCard({
   const totalFees   = fees.reduce((s, f) => s + Number(f.amount), 0);
   const totalInvest = investments.reduce((s, i) => s + Number(i.value), 0);
 
-  const effectiveBill = showCreditCard ? billTotal : 0;
+  const netBill       = Math.max(0, billTotal - estornoTotal);
+  const effectiveBill = showCreditCard ? netBill : 0;
   // Meses futuros sem saldo salvo partem de 0 — não projetam usando prevBalance
   const saldoInicial  = localBal ?? (isFuture ? 0 : (prevBalance ?? 0));
   const saldoConta    = saldoInicial + localEntTotal - localSaiTotal - totalFees - effectiveBill;
@@ -283,8 +285,9 @@ function BankCard({
         </div>
       </div>
 
-      {/* ── Saldo anterior (mês passado) — só exibe quando não há botão de carregamento ── */}
-      {prevBalance !== null && !(isFuture && localBal === null) && (
+      {/* ── Saldo anterior — só exibe quando o banco tem atividade no mês atual ── */}
+      {prevBalance !== null && !isFuture &&
+        (localBal !== null || fees.length > 0 || entradas.length > 0 || saidas.length > 0) && (
         <div style={{ padding: "10px 20px", borderBottom: "1px solid var(--line-2)", display: "flex", justifyContent: "space-between", alignItems: "center", background: "var(--surface-2)" }}>
           <span style={{ fontSize: 12.5, fontWeight: 600, color: "var(--ink-3)" }}>Saldo anterior (mês passado)</span>
           <span className="num" style={{ fontSize: 13, fontWeight: 700, color: "var(--ink-2)" }}>{formatBRL(prevBalance)}</span>
@@ -420,14 +423,28 @@ function BankCard({
 
       {/* ── Cartão de crédito (standard banks only) ── */}
       {showCreditCard && (
-        <div style={{ padding: "11px 20px", borderBottom: "1px solid var(--line-2)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <div>
-            <div className="section-label" style={{ marginBottom: 2 }}>Cartão de crédito</div>
-            <div style={{ fontSize: 12, color: "var(--ink-3)" }}>{billTotal > 0 ? "Fatura lançada em Débitos" : "Sem fatura lançada neste mês"}</div>
+        <div style={{ padding: "11px 20px", borderBottom: "1px solid var(--line-2)" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div>
+              <div className="section-label" style={{ marginBottom: 2 }}>Cartão de crédito</div>
+              <div style={{ fontSize: 12, color: "var(--ink-3)" }}>{billTotal > 0 ? "Fatura lançada em Débitos" : "Sem fatura lançada neste mês"}</div>
+            </div>
+            <span className="num" style={{ fontWeight: 700, fontSize: 15, color: billTotal > 0 ? "var(--neg)" : "var(--ink-3)" }}>
+              {billTotal > 0 ? `−${formatBRL(billTotal)}` : "—"}
+            </span>
           </div>
-          <span className="num" style={{ fontWeight: 700, fontSize: 15, color: billTotal > 0 ? "var(--neg)" : "var(--ink-3)" }}>
-            {billTotal > 0 ? `−${formatBRL(billTotal)}` : "—"}
-          </span>
+          {estornoTotal > 0 && (
+            <div style={{ marginTop: 6, display: "flex", flexDirection: "column", gap: 2 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
+                <span style={{ color: "var(--pos)", fontWeight: 600 }}>Estornos / créditos</span>
+                <span className="num" style={{ color: "var(--pos)", fontWeight: 700 }}>+{formatBRL(estornoTotal)}</span>
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, borderTop: "1px solid var(--line-2)", paddingTop: 4, marginTop: 2 }}>
+                <span style={{ fontWeight: 700 }}>Fatura líquida</span>
+                <span className="num" style={{ fontWeight: 800, color: "var(--neg)" }}>−{formatBRL(netBill)}</span>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -584,6 +601,9 @@ export default function BancosPage() {
   // All manual entries (standard + custom)
   const [entries, setEntries] = useState<BankEntry[]>([]);
 
+  // Estornos: INCOME transactions with a bank set (refunds within the bill)
+  const [estornoTxs, setEstornoTxs] = useState<BillTx[]>([]);
+
   // Previous month data for real closing balance
   const [prevEntries, setPrevEntries]   = useState<BankEntry[]>([]);
   const [prevBillTxs, setPrevBillTxs]   = useState<BillTx[]>([]);
@@ -597,7 +617,7 @@ export default function BancosPage() {
     const prevM = month === 1 ? 12 : month - 1;
     const prevY = month === 1 ? year - 1 : year;
 
-    const [bals, prevBals, fs, bills, invs, ents, cbs, cbBals, prevCbBals, cbFs, prevEnts, prevBills] = await Promise.all([
+    const [bals, prevBals, fs, bills, invs, ents, cbs, cbBals, prevCbBals, cbFs, prevEnts, prevBills, estornos] = await Promise.all([
       safe(fetch(`/api/bank-balances?month=${month}&year=${year}`)),
       safe(fetch(`/api/bank-balances?month=${prevM}&year=${prevY}`)),
       safe(fetch("/api/bank-fees")),
@@ -610,6 +630,7 @@ export default function BancosPage() {
       safe(fetch("/api/custom-bank-fees")),
       safe(fetch(`/api/bank-entries?month=${prevM}&year=${prevY}`)),
       safe(fetch(`/api/transactions?month=${prevM}&year=${prevY}&expenseType=BANK_BILL`)),
+      safe(fetch(`/api/transactions?month=${month}&year=${year}&type=INCOME`)),
     ]);
 
     if (bals)       setBalances(bals);
@@ -624,6 +645,8 @@ export default function BancosPage() {
     if (cbFs)       setCustomFees(cbFs);
     if (prevEnts)   setPrevEntries(prevEnts);
     if (prevBills)  setPrevBillTxs(prevBills);
+    // Estornos = INCOME transactions with a bank set (credits/refunds inside a bill)
+    if (estornos)   setEstornoTxs((estornos as BillTx[]).filter((t: BillTx) => t.bank !== null));
 
     setLoading(false);
   }, [month, year]);
@@ -832,7 +855,7 @@ export default function BancosPage() {
 
       <div className="content">
         {/* KPIs */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 14, marginBottom: 24 }}>
+        <div className="r-kpi-4" style={{ marginBottom: 24 }}>
           <div className="card kpi">
             <div className="kpi-label"><OrcaIcon name="wallet" size={14} />Total em carteira</div>
             <div className="kpi-val num sm" style={{ color: hasAnyBalance ? (totalBalance >= 0 ? "var(--pos)" : "var(--neg)") : undefined }}>{hasAnyBalance ? formatBRL(totalBalance) : "—"}</div>
@@ -860,14 +883,15 @@ export default function BancosPage() {
             <div style={{ width: 28, height: 28, borderRadius: "50%", border: "3px solid var(--accent)", borderTopColor: "transparent", animation: "spin 0.7s linear infinite" }} />
           </div>
         ) : (
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, alignItems: "start" }}>
+          <div className="r-grid-2col">
             {/* Standard banks */}
             {BANK_KEYS.map(bankKey => {
               const bank = BANKS[bankKey];
               const bal     = balances.find(b => b.bank === bankKey);
               const prevBal = prevBalances.find(b => b.bank === bankKey);
               const bankFees  = fees.filter(f => f.bank === bankKey);
-              const billTotal = billTxs.filter(t => t.bank === bankKey).reduce((s, t) => s + Number(t.amount), 0);
+              const billTotal    = billTxs.filter(t => t.bank === bankKey).reduce((s, t) => s + Number(t.amount), 0);
+              const estornoTotal = estornoTxs.filter(t => t.bank === bankKey).reduce((s, t) => s + Number(t.amount), 0);
               const bankInvest = investments.filter(i => i.institution === bankKey).map(i => ({ id: i.id, name: i.name, value: Number(i.value) }));
               const bankEntradas = entries.filter(e => e.bank === bankKey && e.type === "INCOME").map(e => ({ id: e.id, description: e.description, amount: Number(e.amount), type: "INCOME" as const }));
               const bankSaidas   = entries.filter(e => e.bank === bankKey && e.type === "EXPENSE").map(e => ({ id: e.id, description: e.description, amount: Number(e.amount), type: "EXPENSE" as const }));
@@ -880,6 +904,7 @@ export default function BancosPage() {
                   prevBalance={getPrevSaldo(bankKey)}
                   fees={bankFees}
                   billTotal={billTotal}
+                  estornoTotal={estornoTotal}
                   investments={bankInvest}
                   entradas={bankEntradas}
                   saidas={bankSaidas}

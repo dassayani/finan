@@ -16,7 +16,7 @@ const plusJakarta = Plus_Jakarta_Sans({
 });
 
 export const metadata: Metadata = {
-  title: "Orça — Orçamento Pessoal",
+  title: "Plano Financeiro",
   description: "Controle suas finanças pessoais com facilidade",
 };
 

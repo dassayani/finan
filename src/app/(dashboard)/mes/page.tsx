@@ -221,7 +221,7 @@ function DenseRow({
         </button>
         <button onClick={onDelete} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--neg)", padding: 4, borderRadius: 6, display: "grid", placeItems: "center" }}
           title="Excluir">
-          <OrcaIcon name="dots" size={14} />
+          <OrcaIcon name="trash" size={14} />
         </button>
       </div>
     </div>
@@ -315,7 +315,7 @@ function DenseSection({
               </button>
               <span className="num" style={{ fontSize: 13, fontWeight: 700, color: "var(--pos, #1a7c3a)" }}>+{formatBRL(Number(tx.amount))}</span>
               <button onClick={() => onDelete(tx)} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--neg)", padding: 4, borderRadius: 6, display: "grid", placeItems: "center" }} title="Excluir">
-                <OrcaIcon name="dots" size={13} />
+                <OrcaIcon name="trash" size={13} />
               </button>
             </div>
           ))}
@@ -676,7 +676,7 @@ export default function MesPage() {
           <div style={{ width: 32, height: 32, borderRadius: "50%", border: "3px solid var(--accent)", borderTopColor: "transparent", animation: "spin 0.7s linear infinite" }} />
         </div>
       ) : (
-        <div className="content" style={{ display: "grid", gridTemplateColumns: "320px 1fr", gap: 18, alignItems: "start" }}>
+        <div className="content r-grid-sidebar">
           {/* LEFT RAIL */}
           <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
             {/* Bloco 1 — Saldo projetado */}
