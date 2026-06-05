@@ -660,13 +660,11 @@ function CreditForm({ initial, onSave, onCancel, loading }: { initial?: Partial<
       </div>}
 
       <div className="field"><label>Categoria</label>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+        <select className="orça-input" value={form.category} onChange={e => set("category", e.target.value)}>
           {(Object.entries(CATEGORIES) as [CategoryKey, typeof CATEGORIES[CategoryKey]][]).map(([k, c]) => (
-            <span key={k} className={`opt${form.category === k ? " sel" : ""}`} onClick={() => set("category", k)} style={{ cursor: "pointer", fontSize: 12, padding: "5px 9px" }}>
-              <span style={{ width: 6, height: 6, borderRadius: "50%", background: c.color }} />{c.label}
-            </span>
+            <option key={k} value={k}>{c.label}</option>
           ))}
-        </div>
+        </select>
       </div>
       <div className="field"><label>Observações</label><input className="orça-input" value={form.notes} onChange={e => set("notes", e.target.value)} placeholder="Opcional..." /></div>
       <div style={{ display: "flex", gap: 10 }}>
@@ -680,6 +678,15 @@ function CreditForm({ initial, onSave, onCancel, loading }: { initial?: Partial<
 }
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
+
+type NewReceita = "holerite" | "servicos" | "empresa" | "outras";
+
+const RECEITA_MENU: { type: NewReceita; label: string; icon: string }[] = [
+  { type: "holerite", label: "Holerite",      icon: "wallet"   },
+  { type: "servicos", label: "Serviços",       icon: "arrowDown"},
+  { type: "empresa",  label: "Empresa",        icon: "coins"    },
+  { type: "outras",   label: "Outras Receitas",icon: "plus"     },
+];
 
 export default function CreditosPage() {
   const now = new Date();
@@ -696,7 +703,8 @@ export default function CreditosPage() {
   const [credits, setCredits] = useState<Credit[]>([]);
   const [loadingCredits, setLoadingCredits] = useState(true);
   const [editCredit, setEditCredit] = useState<Credit | null>(null);
-  const [showNewCredit, setShowNewCredit] = useState(false);
+  const [showNewReceita, setShowNewReceita] = useState<NewReceita | null>(null);
+  const [showMenu, setShowMenu] = useState(false);
   const [savingCredit, setSavingCredit] = useState(false);
 
   // Bonus (PLR / Décimo Terceiro) state
@@ -837,7 +845,7 @@ export default function CreditosPage() {
           body: JSON.stringify({ ...data, isRecurring: undefined, endDate: undefined }),
         });
       }
-      setEditCredit(null); setShowNewCredit(false); fetchCredits();
+      setEditCredit(null); setShowNewReceita(null); fetchCredits();
     } finally { setSavingCredit(false); }
   }
 
@@ -884,6 +892,15 @@ export default function CreditosPage() {
   function prevMonth() { if (month === 1) { setMonth(12); setYear(y => y - 1); } else setMonth(m => m - 1); }
   function nextMonth() { if (month === 12) { setMonth(1); setYear(y => y + 1); } else setMonth(m => m + 1); }
 
+  const hasAnyData = !!(
+    salaryData?.effective || bonusPlr || bonusDecimo || otherCredits.length > 0
+  );
+
+  const creditModalTitle =
+    showNewReceita === "servicos" ? "Lançar Serviços" :
+    showNewReceita === "empresa"  ? "Lançar Empresa"  :
+    "Outras Receitas";
+
   return (
     <>
       {/* Salary modals */}
@@ -902,6 +919,16 @@ export default function CreditosPage() {
         />
       </Modal>
 
+      {/* Holerite modal (via menu) */}
+      <Modal open={showNewReceita === "holerite"} onClose={() => setShowNewReceita(null)} title="Lançar Holerite" width={580}>
+        <SalaryForm
+          initial={salaryData?.monthSalary ?? salaryData?.effective ?? salaryData?.template}
+          month={month} year={year} isTemplate={!salaryData?.template}
+          onSave={async (data) => { await handleSaveSalary(data); setShowNewReceita(null); }}
+          onCancel={() => setShowNewReceita(null)} loading={savingSalary}
+        />
+      </Modal>
+
       {/* Bonus modal */}
       <Modal
         open={!!showBonusForm}
@@ -912,8 +939,7 @@ export default function CreditosPage() {
         {showBonusForm && (
           <BonusForm
             bonusType={showBonusForm}
-            year={year}
-            month={month}
+            year={year} month={month}
             initial={showBonusForm === "plr" ? bonusPlr : bonusDecimo}
             onSave={handleSaveBonus}
             onCancel={() => setShowBonusForm(null)}
@@ -922,154 +948,205 @@ export default function CreditosPage() {
         )}
       </Modal>
 
-      {/* Credit modals */}
-      <Modal open={!!editCredit} onClose={() => setEditCredit(null)} title="Editar crédito">
-        {editCredit && <CreditForm initial={editCredit} onSave={handleSaveCredit} onCancel={() => setEditCredit(null)} loading={savingCredit} />}
+      {/* Credit modals (serviços / empresa / outras) */}
+      <Modal
+        open={showNewReceita === "servicos" || showNewReceita === "empresa" || showNewReceita === "outras"}
+        onClose={() => setShowNewReceita(null)}
+        title={creditModalTitle}
+      >
+        <CreditForm
+          onSave={handleSaveCredit}
+          onCancel={() => setShowNewReceita(null)}
+          loading={savingCredit}
+        />
       </Modal>
-      <Modal open={showNewCredit} onClose={() => setShowNewCredit(false)} title="Novo crédito / receita">
-        <CreditForm onSave={handleSaveCredit} onCancel={() => setShowNewCredit(false)} loading={savingCredit} />
+
+      {/* Edit credit modal */}
+      <Modal open={!!editCredit} onClose={() => setEditCredit(null)} title="Editar receita">
+        {editCredit && <CreditForm initial={editCredit} onSave={handleSaveCredit} onCancel={() => setEditCredit(null)} loading={savingCredit} />}
       </Modal>
 
       {/* Topbar */}
       <div className="topbar">
         <div className="topbar-l">
-          <div className="crumb">Lançamentos · Créditos</div>
-          <div className="page-title">Créditos</div>
+          <div className="crumb">Lançamentos · Receitas</div>
+          <div className="page-title">Receitas</div>
         </div>
         <div className="topbar-r">
           <MonthPill label={monthCap} onPrev={prevMonth} onNext={nextMonth} />
-          <button className="btn btn-primary" onClick={() => setShowNewCredit(true)}>
-            <OrcaIcon name="plus" size={16} />Outro crédito
-          </button>
+
+          {/* "Incluir Nova Receita" com dropdown */}
+          <div style={{ position: "relative" }}>
+            <button
+              className="btn btn-primary"
+              onClick={() => setShowMenu(m => !m)}
+            >
+              <OrcaIcon name="plus" size={16} />Incluir Nova Receita
+            </button>
+            {showMenu && (
+              <>
+                {/* backdrop para fechar o menu */}
+                <div
+                  style={{ position: "fixed", inset: 0, zIndex: 98 }}
+                  onClick={() => setShowMenu(false)}
+                />
+                <div style={{
+                  position: "absolute", right: 0, top: "calc(100% + 8px)",
+                  background: "var(--surface)", border: "1px solid var(--line)",
+                  borderRadius: "var(--r-md)", boxShadow: "var(--shadow-lg)",
+                  zIndex: 99, minWidth: 200, overflow: "hidden",
+                }}>
+                  {RECEITA_MENU.map((opt, i) => (
+                    <button
+                      key={opt.type}
+                      onClick={() => { setShowNewReceita(opt.type); setShowMenu(false); }}
+                      style={{
+                        display: "flex", alignItems: "center", gap: 10,
+                        width: "100%", padding: "11px 16px",
+                        background: "none",
+                        borderBottom: i < RECEITA_MENU.length - 1 ? "1px solid var(--line-2)" : "none",
+                        border: "none", cursor: "pointer",
+                        fontSize: 13, fontWeight: 600, color: "var(--ink)", textAlign: "left",
+                      }}
+                    >
+                      <OrcaIcon name={opt.icon} size={15} style={{ color: "var(--accent)", flex: "0 0 auto" }} />
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
         </div>
       </div>
 
       <div className="content">
         {/* KPIs */}
-        <div className="r-kpi-3">
+        <div className="r-kpi-2" style={{ display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: 16, marginBottom: 20 }}>
           <div className="card kpi">
             <div className="kpi-label"><OrcaIcon name="arrowDown" size={14} style={{ color: "var(--pos)" }} />Total de entradas</div>
-            <div className="kpi-val num" style={{ color: "var(--pos)" }}>{formatBRL(grandTotal)}</div>
-            <div className="kpi-delta" style={{ color: "var(--pos)" }}>salário + {otherCredits.length} outros</div>
-          </div>
-          <div className="card kpi">
-            <div className="kpi-label"><OrcaIcon name="wallet" size={14} />Salário líquido</div>
-            <div className="kpi-val num">{salaryData?.effective ? formatBRL(salaryNet) : "—"}</div>
-            {salaryData?.effective?.payDay && <div className="kpi-delta muted">CLT · cai dia {salaryData.effective.payDay}</div>}
+            <div className="kpi-val num" style={{ color: grandTotal > 0 ? "var(--pos)" : undefined }}>
+              {grandTotal > 0 ? formatBRL(grandTotal) : "—"}
+            </div>
+            <div className="kpi-delta muted">
+              {salaryData?.effective ? "salário + " : ""}{otherCredits.length + (bonusPlr ? 1 : 0) + (bonusDecimo ? 1 : 0)} lançamentos
+            </div>
           </div>
           <div className="card kpi">
             <div className="kpi-label"><OrcaIcon name="coins" size={14} />Outros recebimentos</div>
-            <div className="kpi-val num">{formatBRL(othersTotal + bonusTotal)}</div>
+            <div className="kpi-val num">
+              {(othersTotal + bonusTotal) > 0 ? formatBRL(othersTotal + bonusTotal) : "—"}
+            </div>
             <div className="kpi-delta muted">
               {otherCredits.length + (bonusPlr ? 1 : 0) + (bonusDecimo ? 1 : 0)} lançamentos
             </div>
           </div>
         </div>
 
-        <div className="r-grid-credits">
-          {/* Holerite */}
-          {salaryData?.effective ? (
-            <Holerite
-              salary={salaryData.effective}
-              source={salaryData.source}
-              month={month} year={year}
-              onEditMonth={() => setShowSalaryMonth(true)}
-              onEditTemplate={() => setShowSalaryTemplate(true)}
-              onResetMonth={handleResetMonth}
-              onConfirmMonth={handleConfirmMonth}
-              onAddBonus={() => setShowBonusForm(bonusPlr && bonusDecimo ? "plr" : !bonusPlr ? "plr" : "decimo")}
-            />
-          ) : (
-            <div className="card card-pad" style={{ textAlign: "center", color: "var(--ink-3)", padding: 48 }}>
-              <OrcaIcon name="wallet" size={32} style={{ margin: "0 auto 12px", opacity: 0.3 }} />
-              <p style={{ fontWeight: 600, margin: "0 0 4px" }}>Holerite não configurado</p>
-              <p style={{ fontSize: 13, margin: "0 0 16px" }}>Configure o modelo base uma vez e ele se repete todo mês</p>
-              <button className="btn btn-primary" style={{ margin: "0 auto" }} onClick={() => setShowSalaryTemplate(true)}>
-                <OrcaIcon name="plus" size={15} />Configurar salário base
-              </button>
-            </div>
-          )}
-
-          {/* PLR / Décimo Terceiro */}
-          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-            {(bonusPlr || bonusDecimo) && (
-              <>
-                {bonusPlr && (
-                  <BonusDisplay
-                    entry={bonusPlr} bonusType="plr"
-                    onEdit={() => setShowBonusForm("plr")}
-                    onDelete={() => handleDeleteBonus("plr")}
-                  />
-                )}
-                {bonusDecimo && (
-                  <BonusDisplay
-                    entry={bonusDecimo} bonusType="decimo"
-                    onEdit={() => setShowBonusForm("decimo")}
-                    onDelete={() => handleDeleteBonus("decimo")}
-                  />
-                )}
-              </>
-            )}
-
-          {/* Outros recebimentos */}
-            <div className="card">
-              <div className="card-head">
-                <div className="card-title"><span className="dot" style={{ background: "var(--accent)" }} />Outros recebimentos</div>
-                <button className="btn btn-ghost" style={{ padding: "6px 12px", fontSize: 12 }} onClick={() => setShowNewCredit(true)}>
-                  <OrcaIcon name="plus" size={14} />Adicionar
-                </button>
-              </div>
-
-              {loadingCredits ? (
-                <div style={{ display: "grid", placeItems: "center", padding: 40 }}>
-                  <div style={{ width: 24, height: 24, borderRadius: "50%", border: "3px solid var(--accent)", borderTopColor: "transparent", animation: "spin 0.7s linear infinite" }} />
-                </div>
-              ) : otherCredits.length === 0 ? (
-                <div style={{ textAlign: "center", color: "var(--ink-3)", padding: "32px 20px", fontSize: 13 }}>
-                  Nenhum outro recebimento neste mês
-                </div>
-              ) : (
-                otherCredits.map(c => {
-                  const cat = c.category ? CATEGORIES[c.category as CategoryKey] : null;
-                  return (
-                    <div className="row" key={c.id}>
-                      <div className="row-l">
-                        <span style={{ width: 9, height: 9, borderRadius: "50%", background: cat?.color ?? "var(--pos)", flex: "0 0 auto" }} />
-                        <div>
-                          <div className="row-name">{c.description}</div>
-                          <div className="row-meta">{cat?.label ?? "Receita"} · {new Date(c.date).toLocaleDateString("pt-BR")}</div>
-                        </div>
-                      </div>
-                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                        <span className="amt pos num">{formatBRL(Number(c.amount), { sign: true })}</span>
-                        <button onClick={() => setEditCredit(c)} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--ink-3)", padding: 4, borderRadius: 6 }}><OrcaIcon name="edit" size={14} /></button>
-                        <button onClick={() => handleDeleteCredit(c.id, c.description)} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--neg)", padding: 4, borderRadius: 6 }}><OrcaIcon name="trash" size={14} /></button>
-                      </div>
-                    </div>
-                  );
-                })
+        {/* Conteúdo — só aparece quando há dados */}
+        {hasAnyData ? (() => {
+          const hasSalary = !!salaryData?.effective;
+          const rightCol = (
+            <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+              {bonusPlr && (
+                <BonusDisplay entry={bonusPlr} bonusType="plr"
+                  onEdit={() => setShowBonusForm("plr")}
+                  onDelete={() => handleDeleteBonus("plr")} />
+              )}
+              {bonusDecimo && (
+                <BonusDisplay entry={bonusDecimo} bonusType="decimo"
+                  onEdit={() => setShowBonusForm("decimo")}
+                  onDelete={() => handleDeleteBonus("decimo")} />
               )}
 
               {otherCredits.length > 0 && (
-                <div className="row" style={{ background: "var(--pos-soft)", borderRadius: "0 0 var(--r-lg) var(--r-lg)" }}>
-                  <span style={{ fontWeight: 800 }}>Total outros</span>
-                  <span className="amt pos num" style={{ fontSize: 16 }}>{formatBRL(othersTotal)}</span>
+                <div className="card">
+                  <div className="card-head">
+                    <div className="card-title"><span className="dot" style={{ background: "var(--accent)" }} />Outros recebimentos</div>
+                  </div>
+                  {loadingCredits ? (
+                    <div style={{ display: "grid", placeItems: "center", padding: 40 }}>
+                      <div style={{ width: 24, height: 24, borderRadius: "50%", border: "3px solid var(--accent)", borderTopColor: "transparent", animation: "spin 0.7s linear infinite" }} />
+                    </div>
+                  ) : (
+                    otherCredits.map(c => {
+                      const cat = c.category ? CATEGORIES[c.category as CategoryKey] : null;
+                      return (
+                        <div className="row" key={c.id}>
+                          <div className="row-l">
+                            <span style={{ width: 9, height: 9, borderRadius: "50%", background: cat?.color ?? "var(--pos)", flex: "0 0 auto" }} />
+                            <div>
+                              <div className="row-name">{c.description}</div>
+                              <div className="row-meta">{cat?.label ?? "Receita"} · {new Date(c.date).toLocaleDateString("pt-BR")}</div>
+                            </div>
+                          </div>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                            <span className="amt pos num">{formatBRL(Number(c.amount), { sign: true })}</span>
+                            <button onClick={() => setEditCredit(c)} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--ink-3)", padding: 4, borderRadius: 6 }}><OrcaIcon name="edit" size={14} /></button>
+                            <button onClick={() => handleDeleteCredit(c.id, c.description)} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--neg)", padding: 4, borderRadius: 6 }}><OrcaIcon name="trash" size={14} /></button>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                  <div className="row" style={{ background: "var(--pos-soft)", borderRadius: "0 0 var(--r-lg) var(--r-lg)" }}>
+                    <span style={{ fontWeight: 800 }}>Total outros</span>
+                    <span className="amt pos num" style={{ fontSize: 16 }}>{formatBRL(othersTotal)}</span>
+                  </div>
+                </div>
+              )}
+
+              {hasSalary && salaryData!.source !== "month" && (
+                <div style={{ display: "flex", gap: 10, padding: "11px 14px", background: "var(--accent-soft)", borderRadius: "var(--r-md)" }}>
+                  <OrcaIcon name="repeat" size={15} style={{ color: "var(--accent)", flex: "0 0 auto", marginTop: 1 }} />
+                  <span style={{ fontSize: 12.5, color: "var(--accent)", fontWeight: 600, lineHeight: 1.5 }}>
+                    Valores herdados {salaryData!.source === "prev" ? "do mês anterior" : "do modelo base"}.
+                    Se houve férias, PLR ou mudança de plano neste mês, clique em <b>"Editar este mês"</b>.
+                  </span>
                 </div>
               )}
             </div>
+          );
 
-            {/* Nota sobre herança */}
-            {salaryData?.effective && salaryData.source !== "month" && (
-              <div style={{ display: "flex", gap: 10, padding: "11px 14px", background: "var(--accent-soft)", borderRadius: "var(--r-md)" }}>
-                <OrcaIcon name="repeat" size={15} style={{ color: "var(--accent)", flex: "0 0 auto", marginTop: 1 }} />
-                <span style={{ fontSize: 12.5, color: "var(--accent)", fontWeight: 600, lineHeight: 1.5 }}>
-                  Valores herdados {salaryData.source === "prev" ? "do mês anterior" : "do modelo base"}.
-                  Se houve férias, PLR ou mudança de plano neste mês, clique em <b>"Editar este mês"</b>.
-                </span>
+          // Com holerite: grid de 2 colunas (holerite à esq, resto à dir)
+          if (hasSalary) {
+            return (
+              <div className="r-grid-credits" style={{ marginTop: 24 }}>
+                <Holerite
+                  salary={salaryData!.effective!}
+                  source={salaryData!.source}
+                  month={month} year={year}
+                  onEditMonth={() => setShowSalaryMonth(true)}
+                  onEditTemplate={() => setShowSalaryTemplate(true)}
+                  onResetMonth={handleResetMonth}
+                  onConfirmMonth={handleConfirmMonth}
+                  onAddBonus={() => setShowBonusForm(!bonusPlr ? "plr" : !bonusDecimo ? "decimo" : "plr")}
+                />
+                {rightCol}
               </div>
-            )}
-          </div>
-        </div>
+            );
+          }
+
+          // Sem holerite: coluna única
+          return (
+            <div style={{ display: "flex", flexDirection: "column", gap: 16, marginTop: 24 }}>
+              {rightCol}
+            </div>
+          );
+        })() : (
+          /* Estado vazio */
+          !loadingCredits && (
+            <div style={{ textAlign: "center", padding: "72px 0", color: "var(--ink-3)" }}>
+              <OrcaIcon name="arrowDown" size={40} style={{ opacity: 0.18, margin: "0 auto 16px" }} />
+              <p style={{ fontWeight: 700, fontSize: 15, margin: "0 0 6px", color: "var(--ink-2)" }}>
+                Nenhuma receita registrada
+              </p>
+              <p style={{ fontSize: 13, margin: "0 0 20px" }}>
+                Clique em <b>Incluir Nova Receita</b> para adicionar um holerite, serviço ou outro recebimento.
+              </p>
+            </div>
+          )
+        )}
       </div>
 
       <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>

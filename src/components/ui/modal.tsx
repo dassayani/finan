@@ -34,7 +34,7 @@ export function Modal({ open, onClose, title, children, width = 520 }: ModalProp
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "18px 22px", borderBottom: "1px solid var(--line)" }}>
           <h2 style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 17, margin: 0 }}>{title}</h2>
           <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--ink-3)", display: "grid", placeItems: "center", padding: 4, borderRadius: "var(--r-sm)" }}>
-            <OrcaIcon name="dots" size={20} />
+            <OrcaIcon name="close" size={18} />
           </button>
         </div>
         <div style={{ padding: 22 }}>{children}</div>
