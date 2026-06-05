@@ -3,10 +3,15 @@ import { getServerSession } from "next-auth";
 import { z } from "zod";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { BANKS } from "@/lib/constants";
 import type { BankKey } from "@/lib/constants";
 
+const bankKeySchema = z.string().refine((value): value is BankKey => value in BANKS, {
+  message: "Banco inválido",
+});
+
 const schema = z.object({
-  bank: z.string(),
+  bank: bankKeySchema,
   month: z.number().int().min(1).max(12),
   year: z.number().int().min(2020).max(2100),
   balance: z.number(),
@@ -48,14 +53,14 @@ export async function POST(req: NextRequest) {
       where: {
         userId_bank_month_year: {
           userId: session.user.id,
-          bank: data.bank as BankKey,
+          bank: data.bank,
           month: data.month,
           year: data.year,
         },
       },
       update: { balance: data.balance },
       create: {
-        bank: data.bank as BankKey,
+        bank: data.bank,
         month: data.month,
         year: data.year,
         balance: data.balance,
@@ -66,6 +71,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(balance);
   } catch (error) {
     console.error("[bank-balances POST]", error);
+    if (error instanceof z.ZodError) {
+      const msg = error.issues.map(issue => issue.message).join("; ");
+      return NextResponse.json({ error: msg }, { status: 400 });
+    }
     const msg = error instanceof Error ? error.message : String(error);
     return NextResponse.json({ error: msg }, { status: 500 });
   }

@@ -16,8 +16,8 @@ const plusJakarta = Plus_Jakarta_Sans({
 });
 
 export const metadata: Metadata = {
-  title: "Plano Financeiro",
-  description: "Controle suas finanças pessoais com facilidade",
+  title: "SmartWallet+",
+  description: "Controle suas finanças pessoais com inteligência",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

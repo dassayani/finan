@@ -25,6 +25,7 @@ model User {
   bankBalances  BankBalance[]
   customBanks   CustomBank[]
   bankEntries   BankEntry[]
+  bankConfigs   BankConfig[]
 
   @@map("users")
 }
@@ -235,18 +236,40 @@ model Investment {
 }
 
 model CustomBank {
-  id        String              @id @default(cuid())
-  userId    String              @map("user_id")
-  name      String
-  short     String
-  color     String              @default("#6B7280")
-  createdAt DateTime            @default(now()) @map("created_at")
+  id          String              @id @default(cuid())
+  userId      String              @map("user_id")
+  name        String
+  short       String
+  color       String              @default("#6B7280")
+  agency      String?
+  account     String?
+  accountType String?             @map("account_type")
+  cutoffDay   Int?                @map("cutoff_day")
+  dueDay      Int?                @map("due_day")
+  createdAt   DateTime            @default(now()) @map("created_at")
   user      User                @relation(fields: [userId], references: [id], onDelete: Cascade)
   fees      CustomBankFee[]
   balances  CustomBankBalance[]
   entries   BankEntry[]
 
   @@map("custom_banks")
+}
+
+model BankConfig {
+  id          String   @id @default(cuid())
+  userId      String   @map("user_id")
+  bank        BankKey
+  agency      String?
+  account     String?
+  accountType String?  @map("account_type")
+  cutoffDay   Int?     @map("cutoff_day")
+  dueDay      Int?     @map("due_day")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, bank])
+  @@map("bank_configs")
 }
 
 model CustomBankBalance {
@@ -285,6 +308,9 @@ model BankEntry {
   description  String
   amount       Decimal         @db.Decimal(12, 2)
   type         TransactionType
+  groupId      String?         @map("group_id")
+  installments Int?
+  category     CategoryKey?
   createdAt    DateTime        @default(now()) @map("created_at")
   user         User            @relation(fields: [userId], references: [id], onDelete: Cascade)
   customBank   CustomBank?     @relation(fields: [customBankId], references: [id], onDelete: Cascade)

@@ -48,7 +48,7 @@ export default function LoginPage() {
           <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-indigo-600">
             <Wallet className="h-6 w-6 text-white" />
           </div>
-          <h1 className="mt-4 text-2xl font-bold text-gray-900">FinanceFlow</h1>
+          <h1 className="mt-4 text-2xl font-bold text-gray-900">SmartWallet+</h1>
           <p className="mt-1 text-sm text-gray-500">Entre na sua conta</p>
         </div>
 

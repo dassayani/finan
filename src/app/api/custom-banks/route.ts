@@ -15,6 +15,11 @@ const schema = z.object({
   name: z.string().min(1),
   short: z.string().min(1).max(3),
   color: z.string().regex(/^#[0-9a-fA-F]{6}$/),
+  agency: z.string().optional().nullable(),
+  account: z.string().optional().nullable(),
+  accountType: z.string().optional().nullable(),
+  cutoffDay: z.number().int().min(1).max(31).optional().nullable(),
+  dueDay: z.number().int().min(1).max(31).optional().nullable(),
   fees: z.array(feeSchema).optional(),
   initialBalance: z.number().optional().nullable(),
   month: z.number().int().min(1).max(12).optional(),
@@ -42,7 +47,17 @@ export async function POST(req: NextRequest) {
 
     const bank = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       const created = await tx.customBank.create({
-        data: { name: data.name, short: data.short, color: data.color, userId: session.user.id },
+        data: {
+          name: data.name,
+          short: data.short,
+          color: data.color,
+          agency: data.agency ?? null,
+          account: data.account ?? null,
+          accountType: data.accountType ?? null,
+          cutoffDay: data.cutoffDay ?? null,
+          dueDay: data.dueDay ?? null,
+          userId: session.user.id,
+        },
       });
 
       if (data.fees?.length) {
@@ -73,6 +88,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(bank, { status: 201 });
   } catch (error) {
     console.error("[custom-banks POST]", error);
+    if (error instanceof z.ZodError) {
+      return NextResponse.json({ error: error.issues.map(i => i.message).join("; ") }, { status: 400 });
+    }
     return NextResponse.json({ error: "Erro interno" }, { status: 500 });
   }
 }

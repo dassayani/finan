@@ -1,0 +1,5 @@
+npm run test
+
+if [ -n "$RUN_REAL_DB_TESTS" ] || [ -n "$TEST_DIRECT_URL" ] || [ -n "$DATABASE_URL" ]; then
+  npm run test:realdb
+fi

@@ -3,15 +3,24 @@ import { getServerSession } from "next-auth";
 import { z } from "zod";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { BANKS, CATEGORIES } from "@/lib/constants";
 import type { CategoryKey, BankKey } from "@/lib/constants";
+
+const bankKeySchema = z.string().refine((value): value is BankKey => value in BANKS, {
+  message: "Banco inválido",
+});
+
+const categoryKeySchema = z.string().refine((value): value is CategoryKey => value in CATEGORIES, {
+  message: "Categoria inválida",
+});
 
 const updateSchema = z.object({
   description: z.string().min(1).optional(),
   amount: z.number().positive().optional(),
   type: z.enum(["INCOME", "EXPENSE"]).optional(),
   expenseType: z.enum(["FIXED", "VARIABLE", "BANK_BILL"]).optional().nullable(),
-  category: z.string().optional().nullable(),
-  bank: z.string().optional().nullable(),
+  category: categoryKeySchema.optional().nullable(),
+  bank: bankKeySchema.optional().nullable(),
   date: z.string().optional(),
   notes: z.string().optional().nullable(),
   isPaid: z.boolean().optional(),
@@ -39,6 +48,10 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     return NextResponse.json(transaction);
   } catch (error) {
     console.error("[transactions PUT]", error);
+    if (error instanceof z.ZodError) {
+      const msg = error.issues.map(issue => issue.message).join("; ");
+      return NextResponse.json({ error: msg }, { status: 400 });
+    }
     return NextResponse.json({ error: "Erro interno" }, { status: 500 });
   }
 }

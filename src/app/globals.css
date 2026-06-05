@@ -219,6 +219,7 @@ body.sidebar-collapsed .sidebar-offset { margin-left: 64px; }
 .r-grid-dash    { display: grid; grid-template-columns: 1.6fr 1fr;  gap: 16px; align-items: start; }
 .r-grid-credits { display: grid; grid-template-columns: 1.1fr .9fr; gap: 16px; align-items: start; }
 .r-grid-2col    { display: grid; grid-template-columns: 1fr 1fr;    gap: 16px; align-items: start; }
+.r-kpi-2 { display: grid; grid-template-columns: repeat(2,1fr); gap: 16px; margin-bottom: 20px; }
 .r-kpi-3 { display: grid; grid-template-columns: repeat(3,1fr); gap: 16px; margin-bottom: 20px; }
 .r-kpi-4 { display: grid; grid-template-columns: repeat(4,1fr); gap: 14px; margin-bottom: 20px; }
 .r-kpi-5 { display: grid; grid-template-columns: repeat(5,1fr); gap: 14px; margin-bottom: 20px; }
