@@ -11,14 +11,13 @@ const NAV_GROUPS = [
     label: "Visão Geral",
     items: [
       { href: "/dashboard", label: "Dashboard", icon: "dashboard" },
-      { href: "/mes", label: "Visão do Mês", icon: "calendar" },
     ],
   },
   {
     label: "Lançamentos",
     items: [
-      { href: "/creditos", label: "Créditos", icon: "arrowDown" },
-      { href: "/debito", label: "Lançar Débito", icon: "arrowUp" },
+      { href: "/creditos", label: "Receitas", icon: "arrowDown" },
+      { href: "/debito", label: "Despesas", icon: "arrowUp" },
     ],
   },
   {
@@ -63,9 +62,9 @@ export function Sidebar() {
           </button>
         ) : (
           <>
-            <div className="brand-mark">PF</div>
+            <div className="brand-mark">SW+</div>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div className="brand-name">Plano Financeiro</div>
+              <div className="brand-name">SmartWallet+</div>
               <div className="brand-sub">Gestão financeira</div>
             </div>
             <button
