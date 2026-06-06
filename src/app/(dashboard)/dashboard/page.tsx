@@ -53,14 +53,21 @@ function ReadOnlyRow({ tx }: { tx: Transaction }) {
 
 // ─── Read-only section ────────────────────────────────────────────────────────
 
-function ReadOnlySection({ title, badge, color, items, total }: {
+function ReadOnlySection({ title, badge, color, items, total, paidVal }: {
   title: string; badge: React.ReactNode; color: string;
-  items: Transaction[]; total: number;
+  items: Transaction[]; total: number; paidVal?: number;
 }) {
   if (items.length === 0) return null;
   const sorted = [...items].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
   const visible = sorted.slice(0, 10);
   const rest = sorted.length - visible.length;
+
+  const hasPaidInfo = paidVal !== undefined;
+  const pending = hasPaidInfo ? total - paidVal! : 0;
+  const allPaid  = hasPaidInfo && pending <= 0;
+  const totalColor = hasPaidInfo
+    ? (allPaid ? "var(--pos)" : "var(--neg)")
+    : color;
 
   return (
     <div className="card" style={{ marginBottom: 10, overflow: "hidden" }}>
@@ -70,7 +77,14 @@ function ReadOnlySection({ title, badge, color, items, total }: {
           <span style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 13 }}>{title}</span>
           <span className="row-meta">{items.length} item{items.length !== 1 ? "s" : ""}</span>
         </div>
-        <span className="num" style={{ fontSize: 13, fontWeight: 800, color }}>{formatBRL(total)}</span>
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 1 }}>
+          <span className="num" style={{ fontSize: 13, fontWeight: 800, color: totalColor }}>
+            {hasPaidInfo ? (allPaid ? formatBRL(total) : formatBRL(-pending)) : formatBRL(total)}
+          </span>
+          {hasPaidInfo && !allPaid && paidVal! > 0 && (
+            <span style={{ fontSize: 10.5, fontWeight: 600, color: "var(--pos)" }}>{formatBRL(paidVal!)} pago</span>
+          )}
+        </div>
       </div>
       {visible.map(tx => <ReadOnlyRow key={tx.id} tx={tx} />)}
       {rest > 0 && (
@@ -519,6 +533,7 @@ export default function DashboardPage() {
                 title="Gastos Fixos" color="var(--accent)"
                 badge={<OrcaIcon name="repeat" size={15} style={{ color: "var(--accent)" }} />}
                 items={fixosAll.filter(t => !t.bank)} total={fixosTotal}
+                paidVal={sumPaid(fixosAll.filter(t => !t.bank))}
               />
 
               {/* Gastos Variáveis — idem */}
@@ -526,6 +541,7 @@ export default function DashboardPage() {
                 title="Gastos Variáveis" color="#5B49C9"
                 badge={<OrcaIcon name="flame" size={15} style={{ color: "#5B49C9" }} />}
                 items={variaveisAll.filter(t => !t.bank)} total={varsTotal}
+                paidVal={sumPaid(variaveisAll.filter(t => !t.bank))}
               />
 
               {/* Bancos compact */}
