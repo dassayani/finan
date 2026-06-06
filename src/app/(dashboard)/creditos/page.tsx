@@ -250,7 +250,7 @@ function SalaryForm({
       </div>
 
       {/* Extras */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
+      <div className="field-row-2" style={{ marginBottom: 16 }}>
         <div className="field">
           <label>Dia de pagamento</label>
           <input className="orça-input num" type="number" min="1" max="31" value={payDay} onChange={e => setPayDay(e.target.value)} placeholder="5" />
@@ -632,7 +632,7 @@ function CreditForm({ initial, onSave, onCancel, loading }: { initial?: Partial<
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <div className="field"><label>Descrição</label><input className="orça-input" value={form.description} onChange={e => set("description", e.target.value)} placeholder="Reembolso, aluguel, bônus..." /></div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+      <div className="field-row-2">
         <div className="field"><label>Valor (R$)</label><input className="orça-input num" type="number" step="0.01" value={form.amount} onChange={e => set("amount", e.target.value)} /></div>
         <div className="field"><label>Data de início</label><input className="orça-input" type="date" value={form.date} onChange={e => set("date", e.target.value)} /></div>
       </div>
@@ -1022,7 +1022,7 @@ export default function CreditosPage() {
 
       <div className="content">
         {/* KPIs */}
-        <div className="r-kpi-2" style={{ display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: 16, marginBottom: 20 }}>
+        <div className="r-kpi-2">
           <div className="card kpi">
             <div className="kpi-label"><OrcaIcon name="arrowDown" size={14} style={{ color: "var(--pos)" }} />Total de entradas</div>
             <div className="kpi-val num" style={{ color: grandTotal > 0 ? "var(--pos)" : undefined }}>

@@ -1663,7 +1663,7 @@ function ConfigurarModal({
       {/* Dados bancários */}
       <div>
         <SectionLabel>Dados bancários</SectionLabel>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
+        <div className="field-row-3" style={{ gap: 10 }}>
           <div className="field" style={{ margin: 0 }}>
             <label>Tipo de conta</label>
             <select className="orça-input" value={accountType} onChange={e => setAccountType(e.target.value)}>
@@ -1685,7 +1685,7 @@ function ConfigurarModal({
       {/* Cartão de crédito */}
       <div>
         <SectionLabel>Cartão de crédito</SectionLabel>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+        <div className="field-row-2" style={{ gap: 16 }}>
           <DayPicker
             label="Dia de corte"
             hint="Compras a partir do dia {d}+1 caem na fatura do mês seguinte"
@@ -1810,7 +1810,7 @@ function CreateBankModal({ month, year, onSave, onClose }: { month: number; year
       {/* Dados bancários */}
       <div>
         <SectionLabel>Dados bancários</SectionLabel>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
+        <div className="field-row-3" style={{ gap: 10 }}>
           <div className="field" style={{ margin: 0 }}>
             <label>Tipo de conta</label>
             <select className="orça-input" value={accountType} onChange={e => setAccountType(e.target.value)}>
@@ -1832,7 +1832,7 @@ function CreateBankModal({ month, year, onSave, onClose }: { month: number; year
       {/* Cartão de crédito */}
       <div>
         <SectionLabel>Cartão de crédito</SectionLabel>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+        <div className="field-row-2" style={{ gap: 16 }}>
           <DayPicker
             label="Dia de corte"
             hint="Compras a partir do dia {d}+1 caem na fatura do mês seguinte"

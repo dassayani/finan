@@ -90,7 +90,7 @@ function ExpenseForm({
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       {/* Tipo */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+      <div className="field-row-2" style={{ gap: 10 }}>
         {(["FIXED", "VARIABLE"] as const).map(m => {
           const cfg = m === "FIXED"
             ? { label: "Gasto Fixo", icon: "repeat", desc: "Boleto ou PIX fixo mensal" }
@@ -119,7 +119,7 @@ function ExpenseForm({
           onChange={e => { setDesc(e.target.value); setError(""); }}
           placeholder="Ex: Condomínio, Spotify..." />
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+      <div className="field-row-2">
         <div className="field">
           <label>Valor <span style={{ color: "var(--neg)" }}>*</span></label>
           <div className="input-prefix">
@@ -531,7 +531,7 @@ export default function DebitoPage() {
       {/* Content */}
       <div className="content">
         {/* KPIs */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 16, marginBottom: 24 }}>
+        <div className="r-kpi-4" style={{ marginBottom: 24 }}>
           <div className="card kpi">
             <div className="kpi-label"><OrcaIcon name="repeat" size={14} style={{ color: "var(--accent)" }} />Gastos Fixos</div>
             <div className="kpi-val num" style={{ color: "var(--accent)" }}>{fixosTotal > 0 ? formatBRL(fixosTotal) : "—"}</div>

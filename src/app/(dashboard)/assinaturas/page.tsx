@@ -217,11 +217,11 @@ function SubForm({ initial, onSave, onCancel, loading }: { initial?: Partial<Sub
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+      <div className="field-row-2">
         <div className="field"><label>Nome da assinatura</label><input className="orça-input" value={name} onChange={e => setName(e.target.value)} placeholder="Netflix" /></div>
         <div className="field"><label>Valor total (R$)</label><input className="orça-input num" type="number" step="0.01" value={total} onChange={e => setTotal(e.target.value)} /></div>
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+      <div className="field-row-3">
         <div className="field"><label>Plano / Conta</label><input className="orça-input" value={account} onChange={e => setAccount(e.target.value)} placeholder="Família" /></div>
         <div className="field">
           <label>Período</label>

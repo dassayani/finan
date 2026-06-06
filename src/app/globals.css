@@ -225,26 +225,42 @@ body.sidebar-collapsed .sidebar-offset { margin-left: 64px; }
 .r-kpi-5 { display: grid; grid-template-columns: repeat(5,1fr); gap: 14px; margin-bottom: 20px; }
 .r-months-grid { display: grid; grid-template-columns: repeat(12,1fr); gap: 8px; }
 
+/* ── Grids de bancos (colapsa no mobile) ── */
+.r-grid-banks { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+
+/* ── Grids de formulários (colapsam no mobile) ── */
+.field-row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.field-row-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
+
 /* ── Mobile breakpoint (≤ 767px) ── */
 @media (max-width: 767px) {
-  /* Sidebar: sempre icon-only no mobile, toggle escondido */
-  .sidebar { width: 64px !important; flex: 0 0 64px !important; padding: 22px 10px !important; }
-  .sidebar-offset { margin-left: 64px !important; }
+  /* Sidebar: icon-only, toggle escondido */
+  .sidebar { width: 56px !important; flex: 0 0 56px !important; padding: 16px 8px !important; }
+  .sidebar-offset { margin-left: 56px !important; }
   .sidebar-toggle { display: none !important; }
   .nav-group-label { display: none; }
   .nav-item { justify-content: center; padding: 10px 0; }
   .nav-item span { display: none; }
-  .brand { justify-content: center; gap: 0; padding: 4px 0 22px; }
+  .brand { justify-content: center; gap: 0; padding: 4px 0 18px; }
   .brand > *:not(.brand-mark) { display: none; }
   .nav-user > *:not(.avatar):not(button[title="Sair"]) { display: none; }
   .nav-user { justify-content: center; gap: 6px; flex-direction: column; }
 
-  /* Layout padding reduzido */
-  .topbar { padding: 10px 12px; }
-  .topbar-r { gap: 6px; }
-  .topbar-r .btn { padding: 8px 10px; font-size: 12px; }
-  .content { padding: 12px 12px 28px; }
-  .page-title { font-size: 18px; }
+  /* Topbar: empilha título + controles em duas linhas */
+  .topbar {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 10px 12px;
+  }
+  .topbar-r {
+    width: 100%;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .topbar-r .btn { padding: 7px 10px; font-size: 12px; }
+  .content { padding: 12px 10px 28px; }
+  .page-title { font-size: 17px; }
   .crumb { display: none; }
 
   /* Grids de página → coluna única */
@@ -252,19 +268,25 @@ body.sidebar-collapsed .sidebar-offset { margin-left: 64px; }
   .r-grid-preview,
   .r-grid-dash,
   .r-grid-credits,
-  .r-grid-2col { grid-template-columns: 1fr; }
+  .r-grid-2col,
+  .r-grid-banks { grid-template-columns: 1fr; }
 
-  /* KPIs → 2 por linha */
+  /* KPIs → 2 por linha em todos os tamanhos */
+  .r-kpi-2 { gap: 10px; margin-bottom: 14px; }
   .r-kpi-3,
   .r-kpi-4,
   .r-kpi-5 { grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 14px; }
 
-  /* Grid mensal → 4 colunas (3 linhas × 4 meses) */
+  /* Grid mensal → 4 colunas */
   .r-months-grid { grid-template-columns: repeat(4,1fr); gap: 6px; }
 
   /* Cards internos */
-  .card-pad { padding: 14px; }
-  .kpi { padding: 14px 16px; }
-  .kpi-val { font-size: 22px; }
-  .kpi-val.sm { font-size: 18px; }
+  .card-pad { padding: 12px; }
+  .kpi { padding: 12px 14px; }
+  .kpi-val { font-size: 20px; }
+  .kpi-val.sm { font-size: 17px; }
+
+  /* Formulários: grids multi-col → 1-col */
+  .field-row-2,
+  .field-row-3 { grid-template-columns: 1fr !important; }
 }

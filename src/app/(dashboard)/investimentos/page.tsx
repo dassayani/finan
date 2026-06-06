@@ -27,7 +27,7 @@ function InvForm({ initial, onSave, onCancel, loading }: { initial?: Partial<Inv
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <div className="field"><label>Nome do ativo</label><input className="orça-input" value={form.name} onChange={e => set("name", e.target.value)} placeholder="Tesouro Selic 2029" /></div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+      <div className="field-row-2">
         <div className="field"><label>Tipo</label>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
             {TYPES.map(t => <span key={t} className={`opt${form.type === t ? " sel" : ""}`} onClick={() => set("type", t)} style={{ cursor: "pointer", fontSize: 12 }}>{t}</span>)}
@@ -35,7 +35,7 @@ function InvForm({ initial, onSave, onCancel, loading }: { initial?: Partial<Inv
         </div>
         <div className="field"><label>Valor atual (R$)</label><input className="orça-input num" type="number" step="0.01" value={form.value} onChange={e => set("value", e.target.value)} /></div>
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+      <div className="field-row-2">
         <div className="field"><label>Rentabilidade anual (%)</label><input className="orça-input num" type="number" step="0.1" value={form.returnRate} onChange={e => set("returnRate", e.target.value)} placeholder="10.5" /></div>
         <div className="field"><label>Aporte mensal (R$)</label><input className="orça-input num" type="number" step="0.01" value={form.monthlyAdd} onChange={e => set("monthlyAdd", e.target.value)} placeholder="0" /></div>
       </div>

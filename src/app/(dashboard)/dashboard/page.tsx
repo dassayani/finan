@@ -377,7 +377,7 @@ export default function DashboardPage() {
         <div className="content">
 
           {/* KPIs */}
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 16, marginBottom: 24 }}>
+          <div className="r-kpi-4" style={{ marginBottom: 24 }}>
             <div className="card kpi">
               <div className="kpi-label"><OrcaIcon name="arrowDown" size={13} style={{ color: "var(--pos)" }} />Receitas</div>
               <div className="kpi-val sm num" style={{ color: "var(--pos)" }}>{credits > 0 ? formatBRL(credits) : "—"}</div>
@@ -548,7 +548,7 @@ export default function DashboardPage() {
               {allBankIds.length > 0 && (
                 <>
                   <div className="section-label" style={{ margin: "14px 0 10px" }}>Bancos</div>
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                  <div className="r-grid-banks">
                     {allBankIds.map(id => {
                       const bankBills = transactions.filter(t => t.expenseType === "BANK_BILL" && t.bank === id);
                       const balRecord = bankBalances.find(b => b.bank === id);
