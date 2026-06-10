@@ -21,6 +21,29 @@ export async function GET(req: NextRequest) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const exclFilter: Record<string, any> = excl.length > 0 ? { NOT: { category: { in: excl } } } : {};
 
+  // Annual mode: return monthly aggregates for the whole year in one query
+  if (searchParams.get("mode") === "annual") {
+    const yearStart = new Date(Date.UTC(year, 0, 1));
+    const yearEnd   = new Date(Date.UTC(year, 11, 31, 23, 59, 59, 999));
+
+    const txs = await prisma.transaction.findMany({
+      where: { userId: session.user.id, date: { gte: yearStart, lte: yearEnd }, ...exclFilter },
+      select: { type: true, amount: true, date: true },
+    });
+
+    const months = Array.from({ length: 12 }, (_, i) => {
+      const m = i + 1;
+      const monthTxs = txs.filter(t => new Date(t.date).getUTCMonth() + 1 === m);
+      return {
+        month: m,
+        income:  monthTxs.filter(t => t.type === "INCOME") .reduce((s, t) => s + Number(t.amount), 0),
+        expense: monthTxs.filter(t => t.type === "EXPENSE").reduce((s, t) => s + Number(t.amount), 0),
+      };
+    });
+
+    return NextResponse.json({ months });
+  }
+
   const [transactions, categoryGroups, expTypeGroups] = await Promise.all([
     prisma.transaction.findMany({
       where: { userId: session.user.id, date: { gte: start, lte: end }, ...exclFilter },

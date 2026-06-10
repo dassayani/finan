@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { OrcaIcon } from "@/components/ui/orca-icon";
 import { MonthPill } from "@/components/ui/month-pill";
 import { Modal } from "@/components/ui/modal";
@@ -246,13 +246,14 @@ function DeleteEntryDialog({ description, installments, onDeleteOne, onDeleteAll
 // ─── Entry section (Entradas / Saídas) ───────────────────────────────────────
 
 function EntrySection({
-  label, type, entries, onAdd, onDelete, onDeleteGroup, onTotalChange, cardMonth, cardYear, onAddBatch,
+  label, type, entries, onAdd, onDelete, onUpdate, onDeleteGroup, onTotalChange, cardMonth, cardYear, onAddBatch,
 }: {
   label: string;
   type: "INCOME" | "EXPENSE";
   entries: CardEntry[];
   onAdd: (desc: string, amount: number) => Promise<boolean>;
   onDelete: (id: string) => Promise<void>;
+  onUpdate?: (id: string, desc: string, amount: number, category: string | null) => Promise<boolean>;
   onDeleteGroup?: (entry: CardEntry) => Promise<void>;
   onTotalChange?: (total: number) => void;
   cardMonth?: number;
@@ -263,6 +264,12 @@ function EntrySection({
   const [open, setOpen] = useState(false);
   const [addError, setAddError] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<CardEntry | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editDesc, setEditDesc] = useState("");
+  const [editAmount, setEditAmount] = useState("");
+  const [editCategory, setEditCategory] = useState<CategoryKey>("compras");
+  const [editSaving, setEditSaving] = useState(false);
+  const [editError, setEditError] = useState(false);
 
   const entriesKey = entries.map(e => e.id).join(",");
   useEffect(() => { setLocal(entries); }, [entriesKey]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -271,6 +278,31 @@ function EntrySection({
   const isPos = type === "INCOME";
 
   useEffect(() => { onTotalChange?.(total); }, [total]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  function startEdit(e: CardEntry) {
+    setEditingId(e.id);
+    setEditDesc(e.description);
+    setEditAmount(String(e.amount));
+    setEditCategory((e.category as CategoryKey) ?? "compras");
+    setEditError(false);
+    setPendingDelete(null);
+  }
+
+  async function handleSaveEdit(e: CardEntry) {
+    if (!onUpdate) return;
+    const amt = parseFloat(editAmount);
+    if (!editDesc || isNaN(amt) || amt <= 0) return;
+    setEditSaving(true);
+    setEditError(false);
+    const ok = await onUpdate(e.id, editDesc, amt, editCategory);
+    setEditSaving(false);
+    if (ok) {
+      setLocal(prev => prev.map(r => r.id === e.id ? { ...r, description: editDesc, amount: amt, category: editCategory } : r));
+      setEditingId(null);
+    } else {
+      setEditError(true);
+    }
+  }
 
   async function handleDeleteOne(entry: CardEntry) {
     setLocal(prev => prev.filter(e => e.id !== entry.id));
@@ -307,30 +339,88 @@ function EntrySection({
 
       {local.map(e => (
         <div key={e.id}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "4px 0", fontSize: 13 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 6, opacity: e.id.startsWith("__tmp") ? 0.5 : 1 }}>
-              {e.category && CATEGORIES[e.category as CategoryKey] && (
-                <span style={{ width: 7, height: 7, borderRadius: "50%", background: CATEGORIES[e.category as CategoryKey].color, flex: "0 0 auto" }} />
-              )}
-              <span style={{ fontWeight: 600, color: "var(--ink-2)" }}>{e.description}</span>
-              {e.installments && e.installments > 1 && (
-                <span style={{ fontSize: 10, fontWeight: 700, color: "var(--ink-3)", background: "var(--surface-2)", padding: "1px 5px", borderRadius: 4 }}>
-                  {e.installments}x
-                </span>
-              )}
-            </div>
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <span className="num" style={{ fontWeight: 700, color: isPos ? "var(--pos)" : "var(--neg)" }}>
-                {isPos ? "+" : "−"}{formatBRL(Number(e.amount))}
-              </span>
-              {!e.id.startsWith("__tmp") && (
-                <button onClick={() => setPendingDelete(pendingDelete?.id === e.id ? null : e)}
-                  style={{ background: "none", border: "none", cursor: "pointer", color: pendingDelete?.id === e.id ? "var(--neg)" : "var(--ink-3)", padding: 2 }}>
-                  <OrcaIcon name="trash" size={13} />
+          {editingId === e.id ? (
+            <div style={{ padding: "8px 0", borderBottom: "1px solid var(--line-2)" }}>
+              <div style={{ display: "flex", gap: 6, marginBottom: 6 }}>
+                <input
+                  className="orça-input"
+                  value={editDesc}
+                  onChange={ev => setEditDesc(ev.target.value)}
+                  placeholder="Descrição"
+                  style={{ flex: 2, fontSize: 13 }}
+                />
+                <div className="input-prefix" style={{ flex: 1 }}>
+                  <span className="pf">R$</span>
+                  <input
+                    className="orça-input num"
+                    type="number"
+                    step="0.01"
+                    value={editAmount}
+                    onChange={ev => setEditAmount(ev.target.value)}
+                    placeholder="0,00"
+                    style={{ fontSize: 13 }}
+                  />
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: 6 }}>
+                <select
+                  className="orça-input"
+                  value={editCategory}
+                  onChange={ev => setEditCategory(ev.target.value as CategoryKey)}
+                  style={{ flex: 1, fontSize: 12 }}
+                >
+                  {(Object.keys(CATEGORIES) as CategoryKey[]).map(k => (
+                    <option key={k} value={k}>{CATEGORIES[k].label}</option>
+                  ))}
+                </select>
+                <button className="btn btn-ghost" style={{ fontSize: 12, padding: "4px 10px" }} onClick={() => setEditingId(null)}>
+                  Cancelar
                 </button>
-              )}
+                <button
+                  className="btn btn-primary"
+                  style={{ fontSize: 12, padding: "4px 10px" }}
+                  disabled={editSaving || !editDesc || !editAmount}
+                  onClick={() => handleSaveEdit(e)}
+                >
+                  {editSaving ? "..." : <><OrcaIcon name="check" size={13} />Salvar</>}
+                </button>
+              </div>
+              {editError && <div style={{ fontSize: 11.5, color: "var(--neg)", fontWeight: 700, marginTop: 5 }}>✕ Erro ao salvar — tente novamente</div>}
             </div>
-          </div>
+          ) : (
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "4px 0", fontSize: 13 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, opacity: e.id.startsWith("__tmp") ? 0.5 : 1 }}>
+                {e.category && CATEGORIES[e.category as CategoryKey] && (
+                  <span style={{ width: 7, height: 7, borderRadius: "50%", background: CATEGORIES[e.category as CategoryKey].color, flex: "0 0 auto" }} />
+                )}
+                <span style={{ fontWeight: 600, color: "var(--ink-2)" }}>{e.description}</span>
+                {e.installments && e.installments > 1 && (
+                  <span style={{ fontSize: 10, fontWeight: 700, color: "var(--ink-3)", background: "var(--surface-2)", padding: "1px 5px", borderRadius: 4 }}>
+                    {e.installments}x
+                  </span>
+                )}
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span className="num" style={{ fontWeight: 700, color: isPos ? "var(--pos)" : "var(--neg)" }}>
+                  {isPos ? "+" : "−"}{formatBRL(Number(e.amount))}
+                </span>
+                {!e.id.startsWith("__tmp") && (
+                  <>
+                    {onUpdate && (
+                      <button onClick={() => startEdit(e)}
+                        style={{ background: "none", border: "none", cursor: "pointer", color: "var(--ink-3)", padding: 2 }}>
+                        <OrcaIcon name="edit" size={13} />
+                      </button>
+                    )}
+                    <button onClick={() => setPendingDelete(pendingDelete?.id === e.id ? null : e)}
+                      style={{ background: "none", border: "none", cursor: "pointer", color: pendingDelete?.id === e.id ? "var(--neg)" : "var(--ink-3)", padding: 2 }}>
+                      <OrcaIcon name="trash" size={13} />
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
           {pendingDelete?.id === e.id && (
             <DeleteEntryDialog
               description={e.description}
@@ -639,10 +729,12 @@ function getBillingDate(purchaseDate: Date, cutoffDay: number, dueDay: number, i
   return new Date(billingYear, billingMonth, dueDay);
 }
 
-function BillForm({ bank, cutoffDay, dueDay, onSave, onCancel }: {
+function BillForm({ bank, cutoffDay, dueDay, month, year, onSave, onCancel }: {
   bank: string;
   cutoffDay?: number | null;
   dueDay?: number | null;
+  month: number;
+  year: number;
   onSave: (items: object[]) => Promise<boolean>;
   onCancel: () => void;
 }) {
@@ -695,14 +787,24 @@ function BillForm({ bank, cutoffDay, dueDay, onSave, onCancel }: {
   }
 
   async function handleCsvImport(rows: ImportRow[]) {
-    const items = rows.map(r => ({
-      description: r.description, amount: r.amount, type: r.type,
-      expenseType: "BANK_BILL", category: r.category, bank,
-      date: hasCutoff
-        ? formatLocalDate(getBillingDate(parseLocalDate(r.date), cutoffDay!, dueDay!))
-        : r.date,
-      isPaid: false,
-    }));
+    const items = rows.map(r => {
+      let date: string;
+      if (hasCutoff) {
+        date = formatLocalDate(getBillingDate(parseLocalDate(r.date), cutoffDay!, dueDay!));
+      } else {
+        // Sem ciclo de cobrança configurado: força o mês/ano do contexto atual preservando o dia do CSV.
+        // Evita que datas do extrato caiam em meses diferentes do que o usuário está visualizando.
+        const [,, dayStr] = r.date.split("-");
+        const rawDay = parseInt(dayStr, 10);
+        const maxDay = new Date(year, month, 0).getDate();
+        const day = Math.min(rawDay, maxDay);
+        date = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+      }
+      return {
+        description: r.description, amount: r.amount, type: r.type,
+        expenseType: "BANK_BILL", category: r.category, bank, date, isPaid: false,
+      };
+    });
     await onSave(items);
   }
 
@@ -979,7 +1081,7 @@ function BankCard({
   name, short, color, textColor,
   bankId,
   balance, prevBalance, fees, billTransactions = [], hasCreditCard = true, investments, entradas, saidas,
-  onSaveBalance, onClearBalance, onAddFee, onDeleteFee, onAddEntry, onDeleteEntry,
+  onSaveBalance, onClearBalance, onAddFee, onDeleteFee, onAddEntry, onDeleteEntry, onUpdateEntry,
   onAddBillTxs, onDeleteBillTx, onDeleteBillTxGroup, onDeleteEntryGroup, onTogglePaid,
   onPayAllBillTxs, onDeleteAllBillTxs,
   onAddEntryBatch,
@@ -1003,6 +1105,7 @@ function BankCard({
   onDeleteFee: (id: string) => Promise<void>;
   onAddEntry: (desc: string, amount: number, type: "INCOME" | "EXPENSE") => Promise<boolean>;
   onDeleteEntry: (id: string) => Promise<void>;
+  onUpdateEntry?: (id: string, desc: string, amount: number, category: string | null) => Promise<boolean>;
   onAddEntryBatch?: (items: BatchEntryItem[]) => Promise<boolean>;
   onAddBillTxs?: (items: object[]) => Promise<boolean>;
   onDeleteBillTx?: (id: string) => Promise<void>;
@@ -1069,12 +1172,18 @@ function BankCard({
   const totalFees   = fees.reduce((s, f) => s + Number(f.amount), 0);
   const totalInvest = investments.reduce((s, i) => s + Number(i.value), 0);
 
-  // Somente transações pagas afetam o saldo
+  // Saldo real: só faturas já pagas
   const paidBillExp = billTransactions.filter(t => t.type === "EXPENSE" && t.isPaid).reduce((s, t) => s + Number(t.amount), 0);
   const paidBillInc = billTransactions.filter(t => t.type === "INCOME" && t.isPaid).reduce((s, t) => s + Number(t.amount), 0);
   const netBill     = Math.max(0, paidBillExp - paidBillInc);
   const saldoInicial  = localBal ?? (prevBalance ?? 0);
   const saldoConta    = saldoInicial + localEntTotal - localSaiTotal - totalFees - (hasCreditCard ? netBill : 0);
+
+  // Valor total: considera todas as faturas (pagas + pendentes)
+  const totalBillExp = billTransactions.filter(t => t.type === "EXPENSE").reduce((s, t) => s + Number(t.amount), 0);
+  const totalBillInc = billTransactions.filter(t => t.type === "INCOME").reduce((s, t) => s + Number(t.amount), 0);
+  const totalBillNet = Math.max(0, totalBillExp - totalBillInc);
+  const saldoTotal   = saldoInicial + localEntTotal - localSaiTotal - totalFees - (hasCreditCard ? totalBillNet : 0);
 
   async function handleSaveBal() {
     const val = parseFloat(balInput);
@@ -1157,7 +1266,7 @@ function BankCard({
           </div>
           <div>
             <div style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 17 }}>{name}</div>
-            <div style={{ fontSize: 11.5, opacity: 0.75, fontWeight: 600 }}>Saldo atual</div>
+            <div style={{ fontSize: 11.5, opacity: 0.75, fontWeight: 600 }}>Saldo real</div>
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -1276,12 +1385,14 @@ function BankCard({
       {/* ── Entradas ── */}
       <EntrySection label="Entradas" type="INCOME" entries={entradas}
         onAdd={(d, a) => onAddEntry(d, a, "INCOME")} onDelete={onDeleteEntry}
+        onUpdate={onUpdateEntry}
         onDeleteGroup={onDeleteEntryGroup} onTotalChange={setLocalEntTotal}
         cardMonth={month} cardYear={year} onAddBatch={onAddEntryBatch} />
 
       {/* ── Saídas ── */}
       <EntrySection label="Saídas" type="EXPENSE" entries={saidas}
         onAdd={(d, a) => onAddEntry(d, a, "EXPENSE")} onDelete={onDeleteEntry}
+        onUpdate={onUpdateEntry}
         onDeleteGroup={onDeleteEntryGroup} onTotalChange={setLocalSaiTotal}
         cardMonth={month} cardYear={year} onAddBatch={onAddEntryBatch} />
 
@@ -1376,6 +1487,8 @@ function BankCard({
                 bank={bankId}
                 cutoffDay={cutoffDay}
                 dueDay={dueDay}
+                month={month}
+                year={year}
                 onSave={async items => { const ok = await onAddBillTxs(items); if (ok) setShowBillForm(false); return ok; }}
                 onCancel={() => setShowBillForm(false)}
               />
@@ -1490,11 +1603,11 @@ function BankCard({
         </div>
       )}
 
-      {/* ── Footer: saldo da conta ── */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "13px 20px", background: saldoConta >= 0 ? "var(--pos-soft)" : "var(--neg-soft)" }}>
-        <span style={{ fontWeight: 800, fontSize: 13 }}>Saldo atual</span>
-        <span className="num" style={{ fontWeight: 800, fontSize: 18, color: saldoConta >= 0 ? "var(--pos)" : "var(--neg)" }}>
-          {formatBRL(saldoConta)}
+      {/* ── Footer: valor total (com todas as faturas) ── */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "13px 20px", background: "var(--surface-2)", borderTop: "1px solid var(--line-2)" }}>
+        <span style={{ fontWeight: 700, fontSize: 12, color: "var(--ink-3)" }}>Valor total</span>
+        <span className="num" style={{ fontWeight: 800, fontSize: 15, color: saldoTotal >= 0 ? "var(--ink-2)" : "var(--neg)" }}>
+          {formatBRL(saldoTotal)}
         </span>
       </div>
 
@@ -1713,9 +1826,76 @@ function ConfigurarModal({
   );
 }
 
-// ─── Create Bank Modal ────────────────────────────────────────────────────────
+// ─── Add Bank Modal ───────────────────────────────────────────────────────────
 
-function CreateBankModal({ month, year, onSave, onClose }: { month: number; year: number; onSave: () => Promise<void>; onClose: () => void; }) {
+function AddBankModal({ month, year, activeBankKeys, onSave, onClose }: {
+  month: number; year: number; activeBankKeys: Set<BankKey>;
+  onSave: () => Promise<void>; onClose: () => void;
+}) {
+  const [step, setStep] = useState<"select" | "custom">("select");
+  const [activating, setActivating] = useState<BankKey | null>(null);
+
+  const unactivated = BANK_KEYS.filter(k => !activeBankKeys.has(k));
+
+  async function activateStandard(bankKey: BankKey) {
+    setActivating(bankKey);
+    try {
+      await fetch("/api/bank-configs", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ bank: bankKey }),
+      });
+      await onSave();
+      onClose();
+    } finally { setActivating(null); }
+  }
+
+  if (step === "custom") {
+    return <CustomBankForm month={month} year={year} onSave={onSave} onClose={onClose} />;
+  }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      {unactivated.length > 0 ? (
+        <>
+          <div>
+            <SectionLabel>Bancos padrão disponíveis</SectionLabel>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: 8 }}>
+              {unactivated.map(k => {
+                const b = BANKS[k];
+                return (
+                  <button key={k} disabled={!!activating} onClick={() => activateStandard(k)}
+                    style={{ display: "flex", alignItems: "center", gap: 10, padding: "11px 13px", borderRadius: "var(--r-md)", border: "1.5px solid var(--line)", background: activating === k ? "var(--surface-2)" : "var(--surface)", cursor: "pointer", textAlign: "left", opacity: activating && activating !== k ? 0.6 : 1 }}>
+                    <div style={{ width: 28, height: 28, borderRadius: 7, background: b.color, display: "grid", placeItems: "center", fontFamily: "var(--font-display)", fontWeight: 800, fontSize: 11, color: b.on, flex: "0 0 auto" }}>
+                      {activating === k ? "…" : b.short}
+                    </div>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: "var(--ink)" }}>{b.name}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, color: "var(--ink-3)" }}>
+            <div style={{ flex: 1, height: 1, background: "var(--line)" }} />
+            <span style={{ fontSize: 12, fontWeight: 600 }}>ou</span>
+            <div style={{ flex: 1, height: 1, background: "var(--line)" }} />
+          </div>
+        </>
+      ) : (
+        <div style={{ fontSize: 13, color: "var(--ink-3)", textAlign: "center", padding: "8px 0" }}>
+          Todos os bancos padrão já foram adicionados.
+        </div>
+      )}
+      <button className="btn btn-ghost" style={{ justifyContent: "center" }} onClick={() => setStep("custom")}>
+        <OrcaIcon name="plus" size={14} />Criar banco personalizado
+      </button>
+    </div>
+  );
+}
+
+// ─── Custom Bank Form (formerly CreateBankModal) ──────────────────────────────
+
+function CustomBankForm({ month, year, onSave, onClose }: { month: number; year: number; onSave: () => Promise<void>; onClose: () => void; }) {
   const [name, setName] = useState("");
   const [short, setShort] = useState("");
   const [color, setColor] = useState("#6B7280");
@@ -2159,13 +2339,23 @@ export default function BancosPage() {
 
   async function deleteBillTxGroup(groupId: string) {
     await fetch(`/api/transactions?groupId=${encodeURIComponent(groupId)}`, { method: "DELETE" });
-    setBillTxs(prev => prev.filter(t => t.groupId !== groupId));
+    await fetchAll();
   }
 
   // [Bug 1 fix] confirm removido daqui — movido para EntrySection.handleDelete
   async function deleteEntry(id: string) {
     await fetch(`/api/bank-entries/${id}`, { method: "DELETE" });
     await fetchAll();
+  }
+
+  async function updateEntry(id: string, desc: string, amount: number, category: string | null): Promise<boolean> {
+    const res = await fetch(`/api/bank-entries/${id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ description: desc, amount, category }),
+    });
+    if (res.ok) { await fetchAll(); return true; }
+    return false;
   }
 
   // ── Custom bank handlers ──
@@ -2319,10 +2509,11 @@ export default function BancosPage() {
   async function deleteAllBillTxs(bank: BankKey) {
     if (!confirm("Excluir todos os lançamentos desta fatura?")) return;
     setBillTxs(prev => prev.filter(t => t.bank !== bank));
-    await fetch(
+    const res = await fetch(
       `/api/transactions?bank=${bank}&month=${month}&year=${year}&expenseType=BANK_BILL`,
       { method: "DELETE" },
     );
+    if (!res.ok) showFeedback("Erro ao excluir fatura", "Não foi possível excluir os lançamentos. Tente novamente.", [], "error");
     await fetchAll();
   }
 
@@ -2353,8 +2544,23 @@ export default function BancosPage() {
       - billTotal;
   }
 
+  // Bancos padrão ativos: ou têm config explícita ou já têm dados (retrocompatibilidade)
+  const activeBankKeys = useMemo(() => {
+    const active = new Set(bankConfigs.map(c => c.bank as BankKey));
+    BANK_KEYS.forEach(k => {
+      if (
+        balances.some(b => b.bank === k) ||
+        fees.some(f => f.bank === k) ||
+        entries.some(e => e.bank === k) ||
+        billTransactions.some(t => t.bank === k) ||
+        investments.some(i => i.institution === k)
+      ) active.add(k);
+    });
+    return active;
+  }, [bankConfigs, balances, fees, entries, billTransactions, investments]);
+
   const totalBalance = [
-    ...BANK_KEYS.map(k => {
+    ...BANK_KEYS.filter(k => activeBankKeys.has(k)).map(k => {
       const bal   = balances.find(b => b.bank === k);
       const prevS = getPrevSaldo(k);
       const pBal  = prevS !== null ? { balance: prevS } : undefined;
@@ -2391,8 +2597,8 @@ export default function BancosPage() {
 
   return (
     <>
-      <Modal open={showCreate} onClose={() => setShowCreate(false)} title="Criar novo banco" width={580}>
-        <CreateBankModal month={month} year={year} onSave={fetchAll} onClose={() => setShowCreate(false)} />
+      <Modal open={showCreate} onClose={() => setShowCreate(false)} title="Adicionar banco" width={580}>
+        <AddBankModal month={month} year={year} activeBankKeys={activeBankKeys} onSave={fetchAll} onClose={() => setShowCreate(false)} />
       </Modal>
 
       <Modal open={!!configuringBank} onClose={() => setConfiguringBank(null)} title={`Configurar ${configuringBank?.bankName ?? ""}`} width={520}>
@@ -2430,7 +2636,7 @@ export default function BancosPage() {
         <div className="topbar-r">
           <MonthPill label={monthCap} onPrev={prevMonth} onNext={nextMonth} />
           <button className="btn btn-primary" onClick={() => setShowCreate(true)}>
-            <OrcaIcon name="plus" size={16} />Criar banco
+            <OrcaIcon name="plus" size={16} />Adicionar banco
           </button>
         </div>
       </div>
@@ -2498,10 +2704,19 @@ export default function BancosPage() {
           <div style={{ display: "grid", placeItems: "center", padding: 80 }}>
             <div style={{ width: 28, height: 28, borderRadius: "50%", border: "3px solid var(--accent)", borderTopColor: "transparent", animation: "spin 0.7s linear infinite" }} />
           </div>
+        ) : activeBankKeys.size === 0 && customBanks.length === 0 ? (
+          <div style={{ display: "grid", placeItems: "center", padding: "64px 24px", textAlign: "center" }}>
+            <div style={{ fontSize: 40, marginBottom: 12 }}>🏦</div>
+            <div style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 18, color: "var(--ink)", marginBottom: 8 }}>Nenhum banco adicionado</div>
+            <div style={{ fontSize: 13.5, color: "var(--ink-3)", marginBottom: 20, maxWidth: 320 }}>Adicione seus bancos para acompanhar saldos, lançamentos e faturas.</div>
+            <button className="btn btn-primary" onClick={() => setShowCreate(true)}>
+              <OrcaIcon name="plus" size={15} />Adicionar banco
+            </button>
+          </div>
         ) : (
           <div className="r-grid-2col">
             {[
-              ...BANK_KEYS.map(k => ({ kind: "standard" as const, id: k })),
+              ...BANK_KEYS.filter(k => activeBankKeys.has(k)).map(k => ({ kind: "standard" as const, id: k })),
               ...customBanks.map(cb => ({ kind: "custom" as const, id: cb.id })),
             ]
               .sort((a, b) => (closedBanks.has(a.id) ? 1 : 0) - (closedBanks.has(b.id) ? 1 : 0))
@@ -2535,6 +2750,7 @@ export default function BancosPage() {
                       onDeleteFee={deleteFee}
                       onAddEntry={(desc, amt, type) => addEntry(bankKey, desc, amt, type)}
                       onDeleteEntry={deleteEntry}
+                      onUpdateEntry={updateEntry}
                       onAddEntryBatch={items => addEntryBatch(bankKey, items)}
                       onAddBillTxs={addBillTxs}
                       onDeleteBillTx={deleteBillTx}
@@ -2581,6 +2797,7 @@ export default function BancosPage() {
                       onDeleteFee={deleteCustomFee}
                       onAddEntry={(desc, amt, type) => addCustomEntry(cb.id, desc, amt, type)}
                       onDeleteEntry={deleteEntry}
+                      onUpdateEntry={updateEntry}
                       onAddEntryBatch={items => addCustomEntryBatch(cb.id, items)}
                       onDeleteEntryGroup={deleteEntryGroup}
                       month={month} year={year}

@@ -1,49 +1,38 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 import { OrcaIcon } from "@/components/ui/orca-icon";
 import { MonthPill } from "@/components/ui/month-pill";
 import { BankBadge } from "@/components/ui/bank-badge";
 import { BANKS, CATEGORIES, formatBRL } from "@/lib/constants";
 import type { BankKey, CategoryKey } from "@/lib/constants";
+import type { DashTransaction as Transaction } from "@/types/dashboard";
+import { useDashboardMensal } from "@/lib/hooks/use-dashboard-mensal";
+import { useDashboardAnual } from "@/lib/hooks/use-dashboard-anual";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type View = "mensal" | "anual";
 
-interface Transaction {
-  id: string; description: string; amount: number;
-  type: "INCOME" | "EXPENSE";
-  expenseType: "FIXED" | "VARIABLE" | "BANK_BILL" | null;
-  category: string | null; bank: string | null; date: string;
-  isPaid: boolean; notes: string | null;
-  installments: number | null; installmentIndex: number | null; groupId: string | null;
-}
-interface BankFee     { id: string; bank: string; name: string; amount: number; billingDay: number; }
-interface BankBalance { id: string; bank: string; balance: number; }
-interface BankEntry   { id: string; bank: string | null; description: string; amount: number; type: "INCOME" | "EXPENSE"; }
-interface CategoryStat { key: string; name: string; value: number; color: string; }
-interface ExpenseType  { fixed: number; variable: number; bankBill: number; }
-interface MonthDashData {
-  stats: { totalIncome: number; totalExpense: number; balance: number };
-  categoryData: CategoryStat[];
-  expenseTypeData: ExpenseType;
-}
-interface YearMonthData { m: string; income: number; expense: number; projected: boolean; }
-
 const BANK_IDS: BankKey[] = ["caixa", "itau", "bb", "nubank", "picpay", "inter", "mp"];
-const MONTH_NAMES = ["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"];
 const ALL_CAT_KEYS = Object.keys(CATEGORIES) as CategoryKey[];
 
 // ─── Read-only row ────────────────────────────────────────────────────────────
 
 function ReadOnlyRow({ tx }: { tx: Transaction }) {
   const cat = tx.category ? CATEGORIES[tx.category as CategoryKey] : null;
+  const statusLabel = tx.type === "INCOME"
+    ? (tx.isPaid ? "Recebido" : "A receber")
+    : (tx.isPaid ? "Pago"     : "Pendente");
+  const statusColor = tx.isPaid ? "var(--pos)" : "var(--warn)";
+  const statusBg    = tx.isPaid ? "color-mix(in srgb, var(--pos) 12%, transparent)" : "color-mix(in srgb, var(--warn) 12%, transparent)";
   return (
     <div style={{ display: "flex", alignItems: "center", padding: "6px 14px", borderBottom: "1px solid var(--line-2)", fontSize: 12.5, gap: 8, minWidth: 0 }}>
       <span style={{ width: 7, height: 7, borderRadius: "50%", background: cat?.color ?? "var(--ink-3)", flex: "0 0 auto" }} />
       <span style={{ flex: 1, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{tx.description}</span>
-      {cat && <span className="row-meta" style={{ flex: "0 0 auto" }}>{cat.label}</span>}
+      <span style={{ flex: "0 0 auto", fontSize: 11, fontWeight: 700, color: statusColor, background: statusBg, borderRadius: 4, padding: "1px 6px", whiteSpace: "nowrap" }}>
+        {statusLabel}
+      </span>
       <span className="num" style={{ flex: "0 0 auto", fontWeight: 700, minWidth: 72, textAlign: "right", color: tx.type === "INCOME" ? "var(--pos)" : "var(--neg)" }}>
         {tx.type === "INCOME" ? formatBRL(tx.amount) : formatBRL(-tx.amount)}
       </span>
@@ -53,9 +42,10 @@ function ReadOnlyRow({ tx }: { tx: Transaction }) {
 
 // ─── Read-only section ────────────────────────────────────────────────────────
 
-function ReadOnlySection({ title, badge, color, items, total, paidVal }: {
+function ReadOnlySection({ title, badge, color, items, total, paidVal, variant = "expense" }: {
   title: string; badge: React.ReactNode; color: string;
   items: Transaction[]; total: number; paidVal?: number;
+  variant?: "expense" | "income";
 }) {
   if (items.length === 0) return null;
   const sorted = [...items].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
@@ -64,10 +54,18 @@ function ReadOnlySection({ title, badge, color, items, total, paidVal }: {
 
   const hasPaidInfo = paidVal !== undefined;
   const pending = hasPaidInfo ? total - paidVal! : 0;
-  const allPaid  = hasPaidInfo && pending <= 0;
-  const totalColor = hasPaidInfo
-    ? (allPaid ? "var(--pos)" : "var(--neg)")
-    : color;
+
+  const headerDisplay = !hasPaidInfo
+    ? formatBRL(total)
+    : variant === "income"
+      ? (paidVal! > 0 ? formatBRL(paidVal!) : "—")
+      : formatBRL(-pending);
+
+  const headerColor = !hasPaidInfo
+    ? color
+    : variant === "income"
+      ? "var(--pos)"
+      : (pending > 0 ? "var(--neg)" : "var(--ink-3)");
 
   return (
     <div className="card" style={{ marginBottom: 10, overflow: "hidden" }}>
@@ -77,18 +75,17 @@ function ReadOnlySection({ title, badge, color, items, total, paidVal }: {
           <span style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 13 }}>{title}</span>
           <span className="row-meta">{items.length} item{items.length !== 1 ? "s" : ""}</span>
         </div>
-        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 1 }}>
-          <span className="num" style={{ fontSize: 13, fontWeight: 800, color: totalColor }}>
-            {hasPaidInfo ? (allPaid ? formatBRL(total) : formatBRL(-pending)) : formatBRL(total)}
-          </span>
-          {hasPaidInfo && !allPaid && paidVal! > 0 && (
-            <span style={{ fontSize: 10.5, fontWeight: 600, color: "var(--pos)" }}>{formatBRL(paidVal!)} pago</span>
-          )}
-        </div>
+        <span className="num" style={{ fontSize: 13, fontWeight: 800, color: headerColor }}>{headerDisplay}</span>
       </div>
       {visible.map(tx => <ReadOnlyRow key={tx.id} tx={tx} />)}
       {rest > 0 && (
         <div style={{ padding: "6px 14px", fontSize: 11.5, color: "var(--ink-3)", fontWeight: 600 }}>+ {rest} mais</div>
+      )}
+      {hasPaidInfo && (
+        <div style={{ display: "flex", justifyContent: "space-between", padding: "7px 14px", borderTop: "1px solid var(--line-2)", background: "var(--surface-2)" }}>
+          <span style={{ fontSize: 12, fontWeight: 600, color: "var(--ink-3)" }}>Total</span>
+          <span className="num" style={{ fontSize: 12, fontWeight: 700, color: "var(--ink-2)" }}>{formatBRL(total)}</span>
+        </div>
       )}
     </div>
   );
@@ -154,86 +151,24 @@ export default function DashboardPage() {
   const [excludedCats, setExcludedCats] = useState<CategoryKey[]>(["reemb"]);
   const [showFilters,  setShowFilters]  = useState(false);
 
-  // Mensal — dashboard stats
-  const [monthDash, setMonthDash] = useState<MonthDashData | null>(null);
+  const {
+    monthDash, transactions, incomes, bankFees,
+    bankBalances, bankEntriesList, prevBankClosing,
+    loading: mensalLoading,
+  } = useDashboardMensal(month, year, excludedCats, view === "mensal");
 
-  // Mensal — raw ledger
-  const [transactions,    setTransactions]    = useState<Transaction[]>([]);
-  const [incomes,         setIncomes]         = useState<Transaction[]>([]);
-  const [bankFees,        setBankFees]        = useState<BankFee[]>([]);
-  const [bankBalances,    setBankBalances]    = useState<BankBalance[]>([]);
-  const [bankEntriesList, setBankEntriesList] = useState<BankEntry[]>([]);
-  const [prevBankClosing, setPrevBankClosing] = useState<Record<string, number | null>>({});
+  const {
+    yearData, investments, salaryNet,
+    loading: anualLoading,
+  } = useDashboardAnual(year, excludedCats, view === "anual");
 
-  // Annual
-  const [yearData,    setYearData]    = useState<YearMonthData[]>([]);
-  const [investments, setInvestments] = useState<{ value: number }[]>([]);
-  const [salaryNet,   setSalaryNet]   = useState(0);
-
-  const [loading, setLoading] = useState(true);
+  const loading = view === "mensal" ? mensalLoading : anualLoading;
 
   // ── Category filter ─────────────────────────────────────────────────────────
 
-  const exclParam = excludedCats.length > 0 ? `&excl=${excludedCats.join(",")}` : "";
   function toggleCat(key: CategoryKey) {
     setExcludedCats(prev => prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]);
   }
-
-  // ── Fetches ─────────────────────────────────────────────────────────────────
-
-  const fetchMensal = useCallback(async () => {
-    setLoading(true);
-    const prevM = month === 1 ? 12 : month - 1;
-    const prevY = month === 1 ? year - 1 : year;
-    try {
-      const [dashRes, txRes, incRes, feesRes, balRes, entRes, closingRes] = await Promise.all([
-        fetch(`/api/dashboard?year=${year}&month=${month}${exclParam}`),
-        fetch(`/api/transactions?month=${month}&year=${year}&type=EXPENSE`),
-        fetch(`/api/credits?month=${month}&year=${year}`),
-        fetch("/api/bank-fees"),
-        fetch(`/api/bank-balances?month=${month}&year=${year}`),
-        fetch(`/api/bank-entries?month=${month}&year=${year}`),
-        fetch(`/api/bank-closing-balance?month=${prevM}&year=${prevY}`),
-      ]);
-      if (dashRes.ok)    setMonthDash(await dashRes.json());
-      if (txRes.ok)      setTransactions(await txRes.json());
-      if (incRes.ok)     setIncomes(await incRes.json());
-      if (feesRes.ok)    setBankFees(await feesRes.json());
-      if (balRes.ok)     setBankBalances(await balRes.json());
-      if (entRes.ok)     setBankEntriesList(await entRes.json());
-      if (closingRes.ok) setPrevBankClosing(await closingRes.json());
-    } finally { setLoading(false); }
-  }, [month, year, exclParam]);
-
-  const fetchAnual = useCallback(async () => {
-    setLoading(true);
-    const curMonth = now.getMonth() + 1;
-    const [invRes, salRes] = await Promise.all([
-      fetch("/api/investments"),
-      fetch("/api/salary?month=0&year=0"),
-    ]);
-    if (invRes.ok) setInvestments(await invRes.json());
-    let netSal = 0;
-    if (salRes.ok) {
-      const sd = await salRes.json();
-      netSal = Number(sd.template?.netAmount ?? 0);
-      setSalaryNet(netSal);
-    }
-    const rows = await Promise.all(MONTH_NAMES.map(async (m, i) => {
-      const mn = i + 1;
-      if (year === now.getFullYear() && mn > curMonth)
-        return { m, income: netSal, expense: 0, projected: true };
-      const r = await fetch(`/api/dashboard?year=${year}&month=${mn}${exclParam}`);
-      const d: MonthDashData | null = r.ok ? await r.json() : null;
-      return { m, income: d?.stats.totalIncome ?? 0, expense: d?.stats.totalExpense ?? 0, projected: false };
-    }));
-    setYearData(rows);
-    setLoading(false);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [year, exclParam]);
-
-  useEffect(() => { if (view === "mensal") fetchMensal(); }, [view, fetchMensal]);
-  useEffect(() => { if (view === "anual")  fetchAnual();  }, [view, fetchAnual]);
 
   // ── Navigation ───────────────────────────────────────────────────────────────
 
@@ -526,6 +461,7 @@ export default function DashboardPage() {
                 title="Receitas" color="var(--pos)"
                 badge={<span style={{ color: "var(--pos)", fontWeight: 900, fontSize: 17, lineHeight: 1 }}>↑</span>}
                 items={regularIncomes} total={credits}
+                paidVal={sumPaid(regularIncomes)} variant="income"
               />
 
               {/* Gastos Fixos — exclui os com banco (aparecem no card do banco via Saídas) */}

@@ -24,6 +24,7 @@ describe("BancosPage UI flow", () => {
 
       if (!init?.method || init.method === "GET") {
         if (url.includes("/api/bank-closing-balance")) return okJson({});
+        if (url.includes("/api/bank-configs")) return okJson([{ id: "cfg1", bank: "nubank", userId: "u1", agency: null, account: null, accountType: null, cutoffDay: null, dueDay: null }]);
         return okJson([]);
       }
 
@@ -45,9 +46,20 @@ describe("BancosPage UI flow", () => {
       expect(screen.getByText("Bancos")).toBeInTheDocument();
     });
 
+    // Wait for bank card to render (requires fetchAll to complete and bankConfigs to be set)
+    await waitFor(() => {
+      expect(screen.getAllByPlaceholderText("0,00").length).toBeGreaterThan(0);
+    });
+
     const amountInputs = screen.getAllByPlaceholderText("0,00");
     amountInputs.forEach(input => {
       fireEvent.change(input, { target: { value: "123" } });
+    });
+
+    // Wait for the Incluir button to be enabled after input change
+    await waitFor(() => {
+      const btns = screen.getAllByRole("button", { name: /Incluir/i });
+      expect(btns.some(b => !b.hasAttribute("disabled"))).toBe(true);
     });
 
     const includeButtons = screen.getAllByRole("button", { name: /Incluir/i });
@@ -80,6 +92,6 @@ describe("BancosPage UI flow", () => {
 
       // saveBalance uses retry policy (initial call + retries)
       expect(balancePostCalls.length).toBeGreaterThanOrEqual(3);
-    });
+    }, { timeout: 3000 });
   });
 });

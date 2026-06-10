@@ -62,9 +62,17 @@ export function Sidebar() {
           </button>
         ) : (
           <>
-            <div className="brand-mark">SW+</div>
+            <div className="brand-mark">
+              <svg width="20" height="20" viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg">
+                <rect x="10" y="26" width="52" height="34" rx="7" fill="none" stroke="white" strokeWidth="5" strokeOpacity=".95" />
+                <line x1="10" y1="40" x2="62" y2="40" stroke="white" strokeWidth="5" strokeOpacity=".95" />
+                <circle cx="57" cy="21" r="10" fill="#0A2E18" />
+                <line x1="57" y1="15" x2="57" y2="27" stroke="white" strokeWidth="4" strokeLinecap="round" />
+                <line x1="51" y1="21" x2="63" y2="21" stroke="white" strokeWidth="4" strokeLinecap="round" />
+              </svg>
+            </div>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div className="brand-name">SmartWallet+</div>
+              <div className="brand-name">SmartWallet<sup style={{ fontSize: "10px", opacity: .75 }}>+</sup></div>
               <div className="brand-sub">Gestão financeira</div>
             </div>
             <button

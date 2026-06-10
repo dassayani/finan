@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { OrcaIcon } from "@/components/ui/orca-icon";
 import { MonthPill } from "@/components/ui/month-pill";
 import { Modal } from "@/components/ui/modal";
+import { PayToggle } from "@/components/ui/pay-toggle";
 import { CATEGORIES, formatBRL } from "@/lib/constants";
 import type { CategoryKey } from "@/lib/constants";
 
@@ -55,6 +56,7 @@ interface Credit {
   date: string;
   notes: string | null;
   groupId: string | null;
+  isPaid: boolean;
 }
 
 interface BonusEntry {
@@ -410,11 +412,13 @@ function BonusForm({ bonusType: initialType, year, month, initial, onSave, onCan
 
 // ─── Bonus Display ────────────────────────────────────────────────────────────
 
-function BonusDisplay({ entry, bonusType, onEdit, onDelete }: {
+function BonusDisplay({ entry, bonusType, isPaid, onEdit, onDelete, onTogglePaid }: {
   entry: BonusEntry;
   bonusType: BonusType;
+  isPaid: boolean;
   onEdit: () => void;
   onDelete: () => void;
+  onTogglePaid: () => void;
 }) {
   const defaults = BONUS_DEFAULTS[bonusType];
   const proventos = entry.items.filter(i => i.type === "PROVENTO");
@@ -465,7 +469,10 @@ function BonusDisplay({ entry, bonusType, onEdit, onDelete }: {
 
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 20px", background: "var(--warn-soft)" }}>
         <span style={{ fontWeight: 800, fontSize: 15 }}>Líquido {defaults.label}</span>
-        <span className="num" style={{ fontWeight: 800, fontSize: 20, color: "var(--warn)" }}>{formatBRL(Number(entry.netAmount))}</span>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <PayToggle paid={isPaid} onToggle={onTogglePaid} label={{ paid: "Recebido", pending: "A receber" }} />
+          <span className="num" style={{ fontWeight: 800, fontSize: 20, color: "var(--warn)" }}>{formatBRL(Number(entry.netAmount))}</span>
+        </div>
       </div>
 
       <div style={{ display: "flex", gap: 8, padding: "12px 20px", borderTop: "1px solid var(--line-2)" }}>
@@ -487,21 +494,25 @@ function Holerite({
   source,
   month,
   year,
+  isPaid,
   onEditMonth,
   onEditTemplate,
   onResetMonth,
   onConfirmMonth,
   onAddBonus,
+  onTogglePaid,
 }: {
   salary: Salary;
   source: "month" | "prev" | "template" | null;
   month: number;
   year: number;
+  isPaid: boolean;
   onEditMonth: () => void;
   onEditTemplate: () => void;
   onResetMonth: () => void;
   onConfirmMonth: () => void;
   onAddBonus: () => void;
+  onTogglePaid: () => void;
 }) {
   const proventos = salary.items.filter(i => i.type === "PROVENTO");
   const descontos = salary.items.filter(i => i.type === "DESCONTO");
@@ -576,7 +587,10 @@ function Holerite({
       {/* Footer */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 20px", background: "var(--pos-soft)" }}>
         <span style={{ fontWeight: 800, fontSize: 15 }}>Líquido recebido</span>
-        <span className="num" style={{ fontWeight: 800, fontSize: 20, color: "var(--pos)" }}>{formatBRL(Number(salary.netAmount))}</span>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <PayToggle paid={isPaid} onToggle={onTogglePaid} label={{ paid: "Recebido", pending: "A receber" }} />
+          <span className="num" style={{ fontWeight: 800, fontSize: 20, color: "var(--pos)" }}>{formatBRL(Number(salary.netAmount))}</span>
+        </div>
       </div>
 
       {/* Actions — order: Editar modelo base | Editar este mês | Outros recebimentos | Remover Salário deste mês */}
@@ -874,12 +888,29 @@ export default function CreditosPage() {
     } finally { setSavingBonus(false); }
   }
 
+  async function handleTogglePaid(id: string) {
+    const credit = credits.find(c => c.id === id);
+    if (!credit) return;
+    const next = !credit.isPaid;
+    setCredits(prev => prev.map(c => c.id === id ? { ...c, isPaid: next } : c));
+    const res = await fetch(`/api/transactions/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ isPaid: next }),
+    });
+    if (!res.ok) setCredits(prev => prev.map(c => c.id === id ? { ...c, isPaid: credit.isPaid } : c));
+  }
+
   async function handleDeleteBonus(type: BonusType) {
     if (!confirm(`Remover lançamento de ${BONUS_DEFAULTS[type].label} em ${monthCap}?`)) return;
     await fetch(`/api/bonus?type=${type}&year=${year}&payMonth=${month}`, { method: "DELETE" });
     await fetchBonus();
     await fetchCredits();
   }
+
+  const salaryCredit = credits.find(c => c.groupId?.startsWith("salary-"));
+  const plrCredit    = credits.find(c => c.groupId?.startsWith("bonus-plr-"));
+  const decimoCredit = credits.find(c => c.groupId?.startsWith("bonus-decimo-"));
 
   const salaryNet    = salaryData?.effective ? Number(salaryData.effective.netAmount) : 0;
   const bonusTotal   = (bonusPlr ? Number(bonusPlr.netAmount) : 0) + (bonusDecimo ? Number(bonusDecimo.netAmount) : 0);
@@ -1050,13 +1081,17 @@ export default function CreditosPage() {
             <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
               {bonusPlr && (
                 <BonusDisplay entry={bonusPlr} bonusType="plr"
+                  isPaid={plrCredit?.isPaid ?? false}
                   onEdit={() => setShowBonusForm("plr")}
-                  onDelete={() => handleDeleteBonus("plr")} />
+                  onDelete={() => handleDeleteBonus("plr")}
+                  onTogglePaid={() => plrCredit && handleTogglePaid(plrCredit.id)} />
               )}
               {bonusDecimo && (
                 <BonusDisplay entry={bonusDecimo} bonusType="decimo"
+                  isPaid={decimoCredit?.isPaid ?? false}
                   onEdit={() => setShowBonusForm("decimo")}
-                  onDelete={() => handleDeleteBonus("decimo")} />
+                  onDelete={() => handleDeleteBonus("decimo")}
+                  onTogglePaid={() => decimoCredit && handleTogglePaid(decimoCredit.id)} />
               )}
 
               {otherCredits.length > 0 && (
@@ -1081,6 +1116,7 @@ export default function CreditosPage() {
                             </div>
                           </div>
                           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                            <PayToggle paid={c.isPaid} onToggle={() => handleTogglePaid(c.id)} label={{ paid: "Recebido", pending: "A receber" }} />
                             <span className="amt pos num">{formatBRL(Number(c.amount), { sign: true })}</span>
                             <button onClick={() => setEditCredit(c)} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--ink-3)", padding: 4, borderRadius: 6 }}><OrcaIcon name="edit" size={14} /></button>
                             <button onClick={() => handleDeleteCredit(c.id, c.description)} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--neg)", padding: 4, borderRadius: 6 }}><OrcaIcon name="trash" size={14} /></button>
@@ -1116,11 +1152,13 @@ export default function CreditosPage() {
                   salary={salaryData!.effective!}
                   source={salaryData!.source}
                   month={month} year={year}
+                  isPaid={salaryCredit?.isPaid ?? false}
                   onEditMonth={() => setShowSalaryMonth(true)}
                   onEditTemplate={() => setShowSalaryTemplate(true)}
                   onResetMonth={handleResetMonth}
                   onConfirmMonth={handleConfirmMonth}
                   onAddBonus={() => setShowBonusForm(!bonusPlr ? "plr" : !bonusDecimo ? "decimo" : "plr")}
+                  onTogglePaid={() => salaryCredit && handleTogglePaid(salaryCredit.id)}
                 />
                 {rightCol}
               </div>

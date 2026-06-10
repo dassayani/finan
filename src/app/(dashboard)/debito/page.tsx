@@ -305,7 +305,7 @@ function DenseSection({ title, badge, color, items, total, paidVal, onMarkAllPai
           <span style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 14 }}>{title}</span>
           <span className="row-meta">{items.length} lançamento{items.length !== 1 ? "s" : ""}</span>
         </div>
-        <span className="amt neg num" style={{ fontSize: 14 }}>{pending > 0 ? formatBRL(-pending) : "—"}</span>
+        <span className="amt neg num" style={{ fontSize: 14 }}>{formatBRL(-pending)}</span>
       </div>
 
       {items.length === 0 ? (
@@ -315,6 +315,13 @@ function DenseSection({ title, badge, color, items, total, paidVal, onMarkAllPai
           <DenseRow key={tx.id} tx={tx} last={i === items.length - 1}
             onEdit={() => onEdit(tx)} onDelete={() => onDelete(tx)} onTogglePaid={() => onTogglePaid(tx)} />
         ))
+      )}
+
+      {items.length > 0 && (
+        <div style={{ display: "flex", justifyContent: "space-between", padding: "7px 16px", borderTop: "1px solid var(--line-2)", background: "var(--surface-2)" }}>
+          <span style={{ fontSize: 12, fontWeight: 600, color: "var(--ink-3)" }}>Total</span>
+          <span className="num" style={{ fontSize: 12, fontWeight: 700, color: "var(--ink-2)" }}>{formatBRL(total)}</span>
+        </div>
       )}
 
       {onMarkAllPaid && hasUnpaid && (
