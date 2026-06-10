@@ -198,9 +198,23 @@ describeRealDb("nome", () => {
 - `TEST_DIRECT_URL` — URL alternativa para banco de testes; se definida, substitui `DIRECT_URL`
 - Cleanup via `user.delete` funciona porque todos os modelos têm `onDelete: Cascade` em `userId`
 
+### Padrão dos testes UI (`tests/ui/`)
+
+```tsx
+/** @vitest-environment jsdom */   // obrigatório — sobrescreve o "node" padrão do vitest.config
+import "@testing-library/jest-dom/vitest";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+
+afterEach(cleanup);
+beforeEach(() => { vi.stubGlobal("fetch", makeFetch()); });
+```
+
+- Mocking via `vi.stubGlobal("fetch", makeFetch())` — sem mock de router ou sessão
+- Botões com `OrcaIcon` (sem texto visível): buscar pelo path SVG — `document.querySelector('path[d="M3 6h18..."]')` — ver paths em `src/components/ui/orca-icon.tsx`
+
 ### O que NÃO tem teste ainda
 
-`transactions GET/DELETE/PATCH` · `salary` · `bonus` · `subscriptions` · `investments` · `dashboard API` · componentes UI
+`transactions GET/DELETE/PATCH` · `salary` · `bonus` · `subscriptions` · `investments` · `dashboard API` · `AssaturasPage` · `InvestimentosPage`
 
 ---
 

@@ -15,7 +15,7 @@
 | Forms | react-hook-form v7 + Zod v4 |
 | Gráficos | Recharts 3 |
 | Datas | date-fns v4 |
-| Testes | Vitest + @testing-library/react (instalada; testes de componente ainda não existem) |
+| Testes | Vitest + @testing-library/react + jsdom |
 | Fontes | Space Grotesk (display/números) + Plus Jakarta Sans (corpo) |
 
 ## Comandos
@@ -65,10 +65,11 @@ prisma/
   schema.prisma           # fonte de verdade do banco
 prisma.config.ts          # configura qual URL usar nas migrations
 tests/
-  api/                    # testes de integração com Prisma mockado (vi.hoisted)
-  api-real/               # testes com banco real (test:realdb)
-  contracts/              # contract tests
   lib/                    # unit tests de lib
+  api/                    # integração com Prisma mockado (vi.hoisted)
+  contracts/              # contract tests
+  api-real/               # integração com banco real (test:realdb)
+  ui/                     # testes de componente e fluxo de página (jsdom + @testing-library/react)
   setup.ts                # env vars para NextAuth nos testes
 docs/
   merge-gates.md          # CI/CD e proteção de branch no GitHub
@@ -247,10 +248,11 @@ tests/
   api/          # integração com Prisma mockado (sem banco real)
   contracts/    # contract tests: validam o shape das respostas com Zod
   api-real/     # integração com banco real (describeRealDb / test:realdb)
+  ui/           # testes de componente e fluxo de página (jsdom + @testing-library/react)
   setup.ts      # env vars do NextAuth injetadas antes dos testes
 ```
 
-`vitest.config.ts` — `environment: "node"`, `globals: true`, alias `@` → `src/`, `setupFiles: ["./tests/setup.ts"]`.
+`vitest.config.ts` — `environment: "node"` (padrão), `globals: true`, alias `@` → `src/`, `setupFiles: ["./tests/setup.ts"]`. Os testes em `tests/ui/` sobrescrevem o ambiente com `/** @vitest-environment jsdom */` no topo do arquivo.
 
 ### Padrão de mock nos testes de integração
 
@@ -316,6 +318,41 @@ const batchContractSchema = z.object({
 
 Invariante: `successCount + failedCount === total`.
 
+### Padrão dos testes UI (`tests/ui/`)
+
+Cada arquivo de teste UI começa com `/** @vitest-environment jsdom */` para sobrescrever o ambiente padrão (`node`). O padrão de mocking é via `vi.stubGlobal("fetch", makeFetch())` — sem mock de router nem de sessão.
+
+```tsx
+/** @vitest-environment jsdom */
+import "@testing-library/jest-dom/vitest";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+
+// Roteia respostas por URL — padrão makeFetch()
+function makeFetch(data = []) {
+  return vi.fn(async (input, init) => {
+    const url = input.toString();
+    const method = init?.method ?? "GET";
+    if (method !== "GET") return okJson({ id: "ok" });
+    if (url.includes("/api/credits")) return okJson(data);
+    return okJson(null);
+  });
+}
+
+afterEach(cleanup);
+beforeEach(() => { vi.restoreAllMocks(); vi.stubGlobal("fetch", makeFetch()); });
+```
+
+**Botões com OrcaIcon (sem texto):** consultar pelo path SVG diretamente — os ícones são SVGs inline sem `aria-label`:
+
+```ts
+// Encontrar o botão de lixeira pelo path do ícone "trash"
+const TRASH_PATH = "M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v6M14 11v6";
+const trashBtn = Array.from(document.querySelectorAll("button"))
+  .find(b => b.querySelector(`path[d="${TRASH_PATH}"]`));
+```
+
+Ver caminhos disponíveis em `src/components/ui/orca-icon.tsx`.
+
 ### O que está coberto vs o que falta
 
 | Área | Status |
@@ -325,11 +362,15 @@ Invariante: `successCount + failedCount === total`.
 | bank-closing-balance | ✅ integração mockada + real-db |
 | transactions POST (single + batch) | ✅ integração |
 | network.ts (`fetchWithTimeoutAndRetry`) | ✅ unit |
+| CreditosPage — fluxo completo | ✅ UI (13 testes) |
+| DebitoPage — fluxo completo | ✅ UI (18 testes) |
+| BancosPage — feedback de erro | ✅ UI (1 teste) |
+| BatchFeedbackContent | ✅ UI componente (3 testes) |
 | transactions GET / DELETE / PATCH | ❌ sem testes |
 | salary, bonus | ❌ sem testes |
 | subscriptions, investments | ❌ sem testes |
 | dashboard API | ❌ sem testes |
-| componentes UI (React) | ❌ @testing-library/react instalada mas sem uso |
+| AssaturasPage, InvestimentosPage | ❌ sem testes UI |
 
 ## Build — TypeScript
 
