@@ -1122,7 +1122,7 @@ function EditBillModal({
   dueDay?: number | null;
   month: number;
   year: number;
-  onUpdateSingle: (id: string, desc: string, amount: number, category: string | null) => Promise<boolean>;
+  onUpdateSingle: (id: string, desc: string, amount: number, category: string | null, type: "EXPENSE" | "INCOME", bank: string) => Promise<boolean>;
   onSaveBatch: (items: object[]) => Promise<boolean>;
   onDeleteGroup: (groupId: string) => Promise<void>;
   onClose: () => void;
@@ -1173,7 +1173,7 @@ function EditBillModal({
         if (ok) onClose();
         else setError("Erro ao recriar parcelas — tente novamente.");
       } else {
-        const ok = await onUpdateSingle(tx.id, description, amt, category);
+        const ok = await onUpdateSingle(tx.id, description, amt, category, txType, bank);
         if (ok) onClose();
         else setError("Erro ao salvar — tente novamente.");
       }
@@ -1299,7 +1299,7 @@ function BankCard({
   onUpdateEntry?: (id: string, desc: string, amount: number, category: string | null) => Promise<boolean>;
   onAddEntryBatch?: (items: BatchEntryItem[]) => Promise<boolean>;
   onAddBillTxs?: (items: object[]) => Promise<boolean>;
-  onUpdateBillTx?: (id: string, desc: string, amount: number, category: string | null) => Promise<boolean>;
+  onUpdateBillTx?: (id: string, desc: string, amount: number, category: string | null, type: "EXPENSE" | "INCOME", bank: string) => Promise<boolean>;
   onDeleteBillTx?: (id: string) => Promise<void>;
   onDeleteBillTxGroup?: (groupId: string) => Promise<void>;
   onPayAllBillTxs?: () => Promise<void>;
@@ -2618,11 +2618,11 @@ export default function BancosPage() {
     return false;
   }
 
-  async function updateBillTx(id: string, desc: string, amount: number, category: string | null): Promise<boolean> {
+  async function updateBillTx(id: string, desc: string, amount: number, category: string | null, type: "EXPENSE" | "INCOME", bank: string): Promise<boolean> {
     const res = await fetch(`/api/transactions/${id}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ description: desc, amount, category }),
+      body: JSON.stringify({ description: desc, amount, category, type, bank }),
     });
     if (res.ok) { await fetchAll(); return true; }
     return false;
