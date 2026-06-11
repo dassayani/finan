@@ -2382,6 +2382,7 @@ export default function BancosPage() {
   const [fees, setFees]                 = useState<BankFee[]>([]);
   const [billTransactions, setBillTxs]  = useState<FullBillTx[]>([]);
   const [investments, setInvestments]   = useState<Investment[]>([]);
+  const [orphanAssign, setOrphanAssign] = useState<Record<string, string>>({});
 
   // Custom banks
   const [customBanks, setCustomBanks]   = useState<CustomBank[]>([]);
@@ -2628,6 +2629,23 @@ export default function BancosPage() {
     return false;
   }
 
+  async function assignOrphanedTx(id: string) {
+    const bank = orphanAssign[id];
+    if (!bank) return;
+    await fetch(`/api/transactions/${id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ bank }),
+    });
+    setOrphanAssign(prev => { const n = { ...prev }; delete n[id]; return n; });
+    await fetchAll();
+  }
+
+  async function deleteOrphanedTx(id: string) {
+    await fetch(`/api/transactions/${id}`, { method: "DELETE" });
+    await fetchAll();
+  }
+
   // ── Custom bank handlers ──
   async function saveCustomBalance(customBankId: string, value: number): Promise<boolean> {
     const res = await fetchWithTimeoutAndRetry("/api/custom-bank-balances", {
@@ -2869,6 +2887,7 @@ export default function BancosPage() {
   const monthLabel = new Date(year, month - 1).toLocaleDateString("pt-BR", { month: "long", year: "numeric" });
   const monthCap = monthLabel.charAt(0).toUpperCase() + monthLabel.slice(1);
   const isFutureMonth = year > now.getFullYear() || (year === now.getFullYear() && month > now.getMonth() + 1);
+  const orphanedBillTxs = billTransactions.filter(t => !t.bank);
   function prevMonth() { if (month === 1) { setMonth(12); setYear(y => y - 1); } else setMonth(m => m - 1); }
   function nextMonth() { if (month === 12) { setMonth(1); setYear(y => y + 1); } else setMonth(m => m + 1); }
 
@@ -2991,6 +3010,40 @@ export default function BancosPage() {
             </button>
           </div>
         ) : (
+          <>
+          {orphanedBillTxs.length > 0 && (
+            <div style={{ marginBottom: 20, padding: "14px 18px", background: "var(--warn-soft)", border: "1.5px solid var(--warn)", borderRadius: "var(--r-md)" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 13.5, color: "var(--warn)" }}>
+                <OrcaIcon name="flame" size={15} />
+                {orphanedBillTxs.length} lançamento{orphanedBillTxs.length > 1 ? "s" : ""} de fatura sem banco — selecione o banco para recuperar
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {orphanedBillTxs.map(tx => (
+                  <div key={tx.id} style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", background: "var(--surface)", borderRadius: "var(--r-sm)", padding: "8px 12px" }}>
+                    <span style={{ flex: "1 1 180px", fontSize: 13, fontWeight: 600, color: "var(--ink)" }}>{tx.description}</span>
+                    <span className="num" style={{ fontSize: 13, color: "var(--neg)", fontWeight: 700, minWidth: 80, textAlign: "right" }}>{formatBRL(tx.amount)}</span>
+                    <span style={{ fontSize: 12, color: "var(--ink-3)" }}>{new Date(tx.date).toLocaleDateString("pt-BR")}</span>
+                    <select
+                      className="orça-input"
+                      value={orphanAssign[tx.id] ?? ""}
+                      onChange={e => setOrphanAssign(prev => ({ ...prev, [tx.id]: e.target.value }))}
+                      style={{ fontSize: 12, padding: "4px 8px", minWidth: 130 }}
+                    >
+                      <option value="">Selecionar banco…</option>
+                      {BANK_KEYS.map(k => <option key={k} value={k}>{BANKS[k].name}</option>)}
+                      {customBanks.map(cb => <option key={cb.id} value={cb.id}>{cb.name}</option>)}
+                    </select>
+                    <button className="btn btn-primary" style={{ fontSize: 12, padding: "5px 12px" }} disabled={!orphanAssign[tx.id]} onClick={() => assignOrphanedTx(tx.id)}>
+                      Recuperar
+                    </button>
+                    <button className="btn btn-ghost" style={{ fontSize: 12, padding: "5px 10px", color: "var(--neg)" }} onClick={() => deleteOrphanedTx(tx.id)}>
+                      <OrcaIcon name="trash" size={13} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
           <div className="r-grid-2col">
             {[
               ...BANK_KEYS.filter(k => activeBankKeys.has(k)).map(k => ({ kind: "standard" as const, id: k })),
@@ -3097,6 +3150,7 @@ export default function BancosPage() {
               })
             }
           </div>
+          </>
         )}
       </div>
 
