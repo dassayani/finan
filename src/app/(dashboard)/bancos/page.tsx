@@ -1110,6 +1110,162 @@ function BankExtractCsvModal({ bankName, fees, onImport, onClose }: {
   );
 }
 
+// ─── EditBillModal ────────────────────────────────────────────────────────────
+
+function EditBillModal({
+  tx, bank, cutoffDay, dueDay, month, year,
+  onUpdateSingle, onSaveBatch, onDeleteGroup, onClose,
+}: {
+  tx: FullBillTx;
+  bank: string;
+  cutoffDay?: number | null;
+  dueDay?: number | null;
+  month: number;
+  year: number;
+  onUpdateSingle: (id: string, desc: string, amount: number, category: string | null) => Promise<boolean>;
+  onSaveBatch: (items: object[]) => Promise<boolean>;
+  onDeleteGroup: (groupId: string) => Promise<void>;
+  onClose: () => void;
+}) {
+  const isGroup = !!(tx.installments && tx.installments > 1 && tx.groupId);
+  const baseDesc = isGroup ? tx.description.replace(/\s+\d+\/\d+$/, "") : tx.description;
+
+  const [txType, setTxType]     = useState<"EXPENSE" | "INCOME">(tx.type);
+  const [description, setDesc]  = useState(baseDesc);
+  const [amount, setAmount]     = useState(String(tx.amount));
+  const [parcelas, setParcelas] = useState(tx.installments ?? 1);
+  const [date, setDate]         = useState(tx.date.split("T")[0]);
+  const [category, setCategory] = useState<CategoryKey>((tx.category as CategoryKey) ?? "compras");
+  const [saving, setSaving]     = useState(false);
+  const [error, setError]       = useState("");
+
+  const hasCutoff = !!(cutoffDay && dueDay);
+
+  async function handleSave() {
+    const amt = parseFloat(amount);
+    if (!description || isNaN(amt) || amt <= 0) { setError("Preencha descrição e valor."); return; }
+    setSaving(true);
+    setError("");
+    try {
+      if (isGroup && tx.groupId) {
+        const baseDate = parseLocalDate(date);
+        const newGroupId = `grp-${Date.now()}`;
+        const records = Array.from({ length: parcelas }, (_, i) => {
+          const d = hasCutoff
+            ? getBillingDate(baseDate, cutoffDay!, dueDay!, i)
+            : new Date(baseDate.getFullYear(), baseDate.getMonth() + i, baseDate.getDate());
+          return {
+            description: parcelas > 1 ? `${description} ${i + 1}/${parcelas}` : description,
+            amount: amt,
+            type: txType,
+            expenseType: "BANK_BILL",
+            category,
+            bank,
+            date: formatLocalDate(d),
+            isPaid: false,
+            installments: parcelas > 1 ? parcelas : null,
+            installmentIndex: parcelas > 1 ? i + 1 : null,
+            groupId: parcelas > 1 ? newGroupId : null,
+          };
+        });
+        await onDeleteGroup(tx.groupId);
+        const ok = await onSaveBatch(records);
+        if (ok) onClose();
+        else setError("Erro ao recriar parcelas — tente novamente.");
+      } else {
+        const ok = await onUpdateSingle(tx.id, description, amt, category);
+        if (ok) onClose();
+        else setError("Erro ao salvar — tente novamente.");
+      }
+    } catch {
+      setError("Erro inesperado — tente novamente.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      {/* Tipo */}
+      <div style={{ display: "flex", gap: 6 }}>
+        {([["EXPENSE", "⬇ Débito"], ["INCOME", "⬆ Estorno"]] as const).map(([t, lbl]) => (
+          <button key={t} onClick={() => setTxType(t)} style={{
+            padding: "6px 14px", fontSize: 13, fontWeight: 700, borderRadius: "var(--r-sm)", cursor: "pointer",
+            border: `1.5px solid ${txType === t ? (t === "INCOME" ? "var(--pos)" : "var(--accent)") : "var(--line)"}`,
+            background: txType === t ? (t === "INCOME" ? "var(--pos-soft)" : "var(--accent-soft)") : "var(--surface)",
+            color: txType === t ? (t === "INCOME" ? "var(--pos)" : "var(--accent)") : "var(--ink-3)",
+          }}>{lbl}</button>
+        ))}
+      </div>
+
+      {/* Descrição */}
+      <div className="field">
+        <label>Descrição</label>
+        <input className="orça-input" value={description}
+          onChange={e => { setDesc(e.target.value); setError(""); }}
+          placeholder="Ex: AliExpress, Posto Shell…" />
+      </div>
+
+      {/* Valor + Parcelas */}
+      <div className="field-row-2">
+        <div className="field">
+          <label>Valor {isGroup ? "por parcela" : ""}</label>
+          <div className="input-prefix">
+            <span className="pf">R$</span>
+            <input className="orça-input num" type="number" step="0.01" value={amount}
+              onChange={e => { setAmount(e.target.value); setError(""); }}
+              placeholder="0,00" style={{ paddingLeft: 34 }} />
+          </div>
+        </div>
+        <div className="field">
+          <label>Parcelas</label>
+          <div style={{ display: "flex", gap: 6 }}>
+            {[1, 2, 3, 6, 12].map(n => (
+              <button key={n} type="button" onClick={() => setParcelas(n)} style={{
+                padding: "6px 10px", borderRadius: "var(--r-sm)", fontSize: 13, fontWeight: 700, cursor: "pointer",
+                border: `1.5px solid ${parcelas === n ? "var(--accent)" : "var(--line)"}`,
+                background: parcelas === n ? "var(--accent-soft)" : "var(--surface)",
+                color: parcelas === n ? "var(--accent)" : "var(--ink-2)",
+              }}>{n}x</button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Data + Categoria */}
+      <div className="field-row-2">
+        <div className="field">
+          <label>Data{isGroup ? " da 1ª parcela" : ""}</label>
+          <input className="orça-input" type="date" value={date} onChange={e => setDate(e.target.value)} />
+        </div>
+        <div className="field">
+          <label>Categoria</label>
+          <select className="orça-input" value={category} onChange={e => setCategory(e.target.value as CategoryKey)}>
+            {(Object.keys(CATEGORIES) as CategoryKey[]).map(k => (
+              <option key={k} value={k}>{CATEGORIES[k].label}</option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      {isGroup && (
+        <div style={{ padding: "10px 14px", background: "var(--warn-soft)", borderRadius: "var(--r-sm)", fontSize: 13, color: "var(--warn)", fontWeight: 600, lineHeight: 1.5 }}>
+          Este lançamento faz parte de um parcelamento de {tx.installments}x. Salvar vai recriar todas as parcelas com os novos dados.
+        </div>
+      )}
+
+      {error && <div style={{ fontSize: 13, color: "var(--neg)", fontWeight: 700 }}>{error}</div>}
+
+      <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+        <button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
+        <button className="btn btn-primary" onClick={handleSave} disabled={saving || !description || !amount}>
+          {saving ? "Salvando…" : <><OrcaIcon name="check" size={14} />Salvar alterações</>}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ─── Bank Card ────────────────────────────────────────────────────────────────
 
 function BankCard({
@@ -1117,7 +1273,7 @@ function BankCard({
   bankId,
   balance, prevBalance, fees, billTransactions = [], hasCreditCard = true, investments, entradas, saidas,
   onSaveBalance, onClearBalance, onAddFee, onDeleteFee, onAddEntry, onDeleteEntry, onUpdateEntry,
-  onAddBillTxs, onDeleteBillTx, onDeleteBillTxGroup, onDeleteEntryGroup, onTogglePaid,
+  onAddBillTxs, onUpdateBillTx, onDeleteBillTx, onDeleteBillTxGroup, onDeleteEntryGroup, onTogglePaid,
   onPayAllBillTxs, onDeleteAllBillTxs,
   onAddEntryBatch, onToggleEntryPaid,
   isCustom, onDeleteBank, onConfigureBank, isClosed = false, onToggleClose,
@@ -1143,6 +1299,7 @@ function BankCard({
   onUpdateEntry?: (id: string, desc: string, amount: number, category: string | null) => Promise<boolean>;
   onAddEntryBatch?: (items: BatchEntryItem[]) => Promise<boolean>;
   onAddBillTxs?: (items: object[]) => Promise<boolean>;
+  onUpdateBillTx?: (id: string, desc: string, amount: number, category: string | null) => Promise<boolean>;
   onDeleteBillTx?: (id: string) => Promise<void>;
   onDeleteBillTxGroup?: (groupId: string) => Promise<void>;
   onPayAllBillTxs?: () => Promise<void>;
@@ -1177,6 +1334,7 @@ function BankCard({
   const [feeError, setFeeError] = useState(false);
   const [showBillForm, setShowBillForm] = useState(false);
   const [pendingBillDelete, setPendingBillDelete] = useState<FullBillTx | null>(null);
+  const [editingBillTx, setEditingBillTx] = useState<FullBillTx | null>(null);
   const [showExtract, setShowExtract] = useState(false);
   const [showBalForm, setShowBalForm] = useState(false);
   const [openTarifas, setOpenTarifas] = useState(false);
@@ -1288,6 +1446,23 @@ function BankCard({
 
   return (
     <div className="card" style={{ overflow: "hidden" }}>
+      {editingBillTx && onUpdateBillTx && onAddBillTxs && onDeleteBillTxGroup && (
+        <Modal open onClose={() => setEditingBillTx(null)} title="Editar lançamento de fatura" width={520}>
+          <EditBillModal
+            tx={editingBillTx}
+            bank={bankId}
+            cutoffDay={cutoffDay}
+            dueDay={dueDay}
+            month={month}
+            year={year}
+            onUpdateSingle={onUpdateBillTx}
+            onSaveBatch={onAddBillTxs}
+            onDeleteGroup={onDeleteBillTxGroup}
+            onClose={() => setEditingBillTx(null)}
+          />
+        </Modal>
+      )}
+
       {showExtract && onAddEntryBatch && (
         <BankExtractCsvModal
           bankName={name}
@@ -1625,6 +1800,15 @@ function BankCard({
                                   whiteSpace: "nowrap",
                                 }}>
                                   {tx.isPaid ? "✓ Pago" : (isIncome ? "Receber" : "Pagar")}
+                                </button>
+                              )}
+                              {onUpdateBillTx && (
+                                <button
+                                  onClick={() => { setEditingBillTx(tx); setPendingBillDelete(null); }}
+                                  style={{ background: "none", border: "none", cursor: "pointer", color: "var(--ink-3)", padding: 2 }}
+                                  title="Editar"
+                                >
+                                  <OrcaIcon name="edit" size={13} />
                                 </button>
                               )}
                               {onDeleteBillTx && (
@@ -2434,6 +2618,16 @@ export default function BancosPage() {
     return false;
   }
 
+  async function updateBillTx(id: string, desc: string, amount: number, category: string | null): Promise<boolean> {
+    const res = await fetch(`/api/transactions/${id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ description: desc, amount, category }),
+    });
+    if (res.ok) { await fetchAll(); return true; }
+    return false;
+  }
+
   // ── Custom bank handlers ──
   async function saveCustomBalance(customBankId: string, value: number): Promise<boolean> {
     const res = await fetchWithTimeoutAndRetry("/api/custom-bank-balances", {
@@ -2836,6 +3030,7 @@ export default function BancosPage() {
                       onUpdateEntry={updateEntry}
                       onAddEntryBatch={items => addEntryBatch(bankKey, items)}
                       onAddBillTxs={addBillTxs}
+                      onUpdateBillTx={updateBillTx}
                       onDeleteBillTx={deleteBillTx}
                       onDeleteBillTxGroup={deleteBillTxGroup}
                       onDeleteEntryGroup={deleteEntryGroup}
