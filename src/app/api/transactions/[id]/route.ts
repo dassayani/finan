@@ -40,8 +40,8 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       data: {
         ...data,
         date: data.date ? new Date(data.date) : undefined,
-        category: (data.category as CategoryKey) ?? null,
-        bank: (data.bank as BankKey) ?? null,
+        ...(data.category !== undefined ? { category: (data.category as CategoryKey) ?? null } : {}),
+        ...(data.bank !== undefined ? { bank: (data.bank as BankKey) ?? null } : {}),
       },
     });
 
