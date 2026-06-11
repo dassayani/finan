@@ -888,9 +888,22 @@ function BillForm({ bank, cutoffDay, dueDay, month, year, onSave, onCancel }: {
           <div className="field" style={{ margin: 0 }}>
             <label style={{ fontSize: 11 }}>Data da compra</label>
             <input className="orça-input" type="date" value={date} onChange={e => setDate(e.target.value)} style={{ fontSize: 13 }} />
-            {hasCutoff && txType === "EXPENSE" && date && (
-              <div style={{ fontSize: 11, color: "var(--accent)", fontWeight: 600, marginTop: 3 }}>
-                Fatura de {months[0]?.label} · vence dia {dueDay}
+            {hasCutoff && txType === "EXPENSE" && date && (() => {
+              const d = months[0]?.date;
+              const crossesMonth = d && (d.getMonth() + 1 !== month || d.getFullYear() !== year);
+              return crossesMonth ? (
+                <div style={{ marginTop: 4, padding: "5px 10px", background: "var(--warn-soft)", border: "1px solid var(--warn)", borderRadius: "var(--r-sm)", fontSize: 11.5, fontWeight: 700, color: "var(--warn)" }}>
+                  ⚠ Após o corte — cai na fatura de {months[0]?.label} (vence dia {dueDay})
+                </div>
+              ) : (
+                <div style={{ fontSize: 11, color: "var(--accent)", fontWeight: 600, marginTop: 3 }}>
+                  Fatura de {months[0]?.label} · vence dia {dueDay}
+                </div>
+              );
+            })()}
+            {!hasCutoff && cutoffDay && txType === "EXPENSE" && (
+              <div style={{ marginTop: 4, fontSize: 11, color: "var(--warn)", fontWeight: 600 }}>
+                Configure o dia de vencimento para ajuste automático da fatura
               </div>
             )}
           </div>
@@ -1339,6 +1352,7 @@ function BankCard({
   const [showBalForm, setShowBalForm] = useState(false);
   const [openTarifas, setOpenTarifas] = useState(false);
   const [openFatura, setOpenFatura] = useState(false);
+  const [billNotice, setBillNotice] = useState<string | null>(null);
 
   // Evita vazamento de saldo local ao trocar de mês (mesma key do componente por banco)
   // Reset completo só ao trocar de mês — nunca zera localBal por fetch stale
@@ -1760,9 +1774,33 @@ function BankCard({
                     dueDay={dueDay}
                     month={month}
                     year={year}
-                    onSave={async items => { const ok = await onAddBillTxs(items); if (ok) setShowBillForm(false); return ok; }}
+                    onSave={async items => {
+                      const ok = await onAddBillTxs(items);
+                      if (ok) {
+                        setShowBillForm(false);
+                        const firstDate = items[0] && (items[0] as { date?: string }).date ? parseLocalDate((items[0] as { date: string }).date) : null;
+                        if (firstDate) {
+                          const txMonth = firstDate.getMonth() + 1;
+                          const txYear  = firstDate.getFullYear();
+                          if (txMonth !== month || txYear !== year) {
+                            const lbl = firstDate.toLocaleDateString("pt-BR", { month: "long", year: "numeric" });
+                            setBillNotice(`Salvo na fatura de ${lbl} ✓`);
+                            setTimeout(() => setBillNotice(null), 6000);
+                          }
+                        }
+                      }
+                      return ok;
+                    }}
                     onCancel={() => setShowBillForm(false)}
                   />
+                </div>
+              )}
+
+              {/* Aviso: transação salva em outro mês */}
+              {billNotice && (
+                <div style={{ margin: "0 16px 8px", padding: "8px 14px", background: "var(--pos-soft)", border: "1px solid var(--pos)", borderRadius: "var(--r-sm)", fontSize: 12.5, fontWeight: 700, color: "var(--pos)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <span>{billNotice}</span>
+                  <button onClick={() => setBillNotice(null)} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--pos)", padding: 0 }}>×</button>
                 </div>
               )}
 
