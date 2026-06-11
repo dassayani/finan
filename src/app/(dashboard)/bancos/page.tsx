@@ -4,8 +4,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { OrcaIcon } from "@/components/ui/orca-icon";
 import { MonthPill } from "@/components/ui/month-pill";
 import { Modal } from "@/components/ui/modal";
+import { PayToggle } from "@/components/ui/pay-toggle";
 import { BatchFeedbackContent } from "@/components/dashboard/batch-feedback-content";
-import { BANKS, CATEGORIES, formatBRL } from "@/lib/constants";
+import { BANKS, CATEGORIES, categoriesFor, formatBRL } from "@/lib/constants";
 import { fetchWithTimeoutAndRetry } from "@/lib/network";
 import type { BankKey, CategoryKey } from "@/lib/constants";
 
@@ -19,14 +20,14 @@ interface FullBillTx  {
   isPaid: boolean; installments: number | null; installmentIndex: number | null; groupId: string | null;
 }
 interface Investment  { id: string; name: string; institution: string | null; value: number; }
-interface BankEntry   { id: string; bank: string | null; customBankId: string | null; description: string; amount: number; type: "INCOME" | "EXPENSE"; groupId?: string | null; installments?: number | null; category?: string | null; }
+interface BankEntry   { id: string; bank: string | null; customBankId: string | null; description: string; amount: number; type: "INCOME" | "EXPENSE"; isPaid?: boolean; groupId?: string | null; installments?: number | null; category?: string | null; }
 
 interface CustomBank  { id: string; name: string; short: string; color: string; agency?: string | null; account?: string | null; accountType?: string | null; cutoffDay?: number | null; dueDay?: number | null; }
 interface CustomBankBalance { id: string; customBankId: string; month: number; year: number; balance: number; }
 interface CustomBankFee     { id: string; customBankId: string; name: string; amount: number; billingDay: number; }
 
 interface CardFee        { id: string; name: string; amount: number; billingDay: number; }
-interface CardEntry      { id: string; description: string; amount: number; type: "INCOME" | "EXPENSE"; groupId?: string | null; installments?: number | null; category?: string | null; }
+interface CardEntry      { id: string; description: string; amount: number; type: "INCOME" | "EXPENSE"; isPaid?: boolean; groupId?: string | null; installments?: number | null; category?: string | null; }
 interface CardInvestment { id: string; name: string; value: number; }
 interface BankConfig     { id: string; bank: string; agency: string | null; account: string | null; accountType: string | null; cutoffDay: number | null; dueDay: number | null; }
 
@@ -57,7 +58,12 @@ function BankEntryForm({ defaultType, cardMonth, cardYear, onSave, onCancel }: {
   const [txType, setTxType]     = useState<"INCOME" | "EXPENSE">(defaultType);
   const [description, setDesc]  = useState("");
   const [amount, setAmount]     = useState("");
-  const [category, setCategory] = useState<CategoryKey>("compras");
+  const [category, setCategory] = useState<CategoryKey>(defaultType === "INCOME" ? "salario" : "compras");
+
+  function handleTypeChange(t: "INCOME" | "EXPENSE") {
+    setTxType(t);
+    setCategory(t === "INCOME" ? "salario" : "compras");
+  }
   const [mode, setMode]         = useState<"once" | "parcelas" | "mensal">("once");
   const [parcelas, setParcelas] = useState(1);
   const [repeatPreset, setRepeatPreset] = useState<"year" | "custom">("year");
@@ -125,7 +131,7 @@ function BankEntryForm({ defaultType, cardMonth, cardYear, onSave, onCancel }: {
       {/* Tipo */}
       <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
         {([["INCOME", "⬆ Entrada"], ["EXPENSE", "⬇ Saída"]] as const).map(([t, lbl]) => (
-          <button key={t} type="button" onClick={() => setTxType(t)} style={{
+          <button key={t} type="button" onClick={() => handleTypeChange(t)} style={{
             padding: "5px 12px", fontSize: 12, fontWeight: 700, borderRadius: "var(--r-sm)", cursor: "pointer",
             border: `1.5px solid ${txType === t ? (t === "INCOME" ? "var(--pos)" : "var(--neg)") : "var(--line)"}`,
             background: txType === t ? (t === "INCOME" ? "var(--pos-soft, #e6f4ea)" : "var(--neg-soft, #fdecea)") : "var(--surface)",
@@ -146,7 +152,7 @@ function BankEntryForm({ defaultType, cardMonth, cardYear, onSave, onCancel }: {
       {/* Categoria */}
       <div style={{ marginBottom: 10 }}>
         <select className="orça-input" value={category} onChange={e => setCategory(e.target.value as CategoryKey)} style={{ fontSize: 13, width: "100%" }}>
-          {(Object.entries(CATEGORIES) as [CategoryKey, typeof CATEGORIES[CategoryKey]][]).map(([k, c]) => (
+          {categoriesFor(txType === "INCOME" ? "income" : "expense").map(([k, c]) => (
             <option key={k} value={k}>{c.label}</option>
           ))}
         </select>
@@ -246,7 +252,7 @@ function DeleteEntryDialog({ description, installments, onDeleteOne, onDeleteAll
 // ─── Entry section (Entradas / Saídas) ───────────────────────────────────────
 
 function EntrySection({
-  label, type, entries, onAdd, onDelete, onUpdate, onDeleteGroup, onTotalChange, cardMonth, cardYear, onAddBatch,
+  label, type, entries, onAdd, onDelete, onUpdate, onDeleteGroup, onTotalChange, cardMonth, cardYear, onAddBatch, onTogglePaid,
 }: {
   label: string;
   type: "INCOME" | "EXPENSE";
@@ -259,9 +265,11 @@ function EntrySection({
   cardMonth?: number;
   cardYear?: number;
   onAddBatch?: (items: BatchEntryItem[]) => Promise<boolean>;
+  onTogglePaid?: (id: string, isPaid: boolean) => Promise<void>;
 }) {
   const [local, setLocal] = useState<CardEntry[]>(entries);
-  const [open, setOpen] = useState(false);
+  const [showAdd, setShowAdd] = useState(false);
+  const [accOpen, setAccOpen] = useState(false);
   const [addError, setAddError] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<CardEntry | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -325,142 +333,166 @@ function EntrySection({
   }
 
   return (
-    <div style={{ padding: "12px 20px", borderBottom: "1px solid var(--line-2)" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: local.length > 0 || open ? 8 : 0 }}>
-        <span className="section-label" style={{ color: isPos ? "var(--pos)" : "var(--neg)" }}>{label}</span>
-        <button className="btn btn-ghost" style={{ padding: "4px 10px", fontSize: 11 }} onClick={() => { setOpen(o => !o); setAddError(false); }}>
-          <OrcaIcon name="plus" size={12} />{open ? "Cancelar" : "Adicionar"}
+    <div style={{ borderBottom: "1px solid var(--line-2)" }}>
+      {/* Accordion header */}
+      <div role="button" tabIndex={0} onClick={() => setAccOpen(o => !o)} onKeyDown={e => (e.key === "Enter" || e.key === " ") && setAccOpen(o => !o)} style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "12px 18px", background: "none", border: "none", textAlign: "left", cursor: "pointer" }}>
+        <span style={{ display: "grid", placeItems: "center", color: "var(--ink-3)", transition: "transform .2s", transform: accOpen ? "rotate(90deg)" : "rotate(0)" }}>
+          <OrcaIcon name="chevR" size={16} />
+        </span>
+        <span style={{ width: 8, height: 8, borderRadius: 3, flexShrink: 0, background: isPos ? "var(--pos)" : "var(--neg)" }} />
+        <span style={{ fontSize: 12, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: "var(--ink-2)" }}>{label}</span>
+        {local.length > 0 && (
+          <span style={{ fontSize: 11, fontWeight: 700, color: "var(--ink-3)", background: "var(--surface-2)", borderRadius: 999, padding: "2px 8px" }}>
+            {local.length}
+          </span>
+        )}
+        <span style={{ flex: 1 }} />
+        <span className="num" style={{ fontWeight: 700, fontSize: 13.5, color: isPos ? (local.length === 0 ? "var(--ink-3)" : "var(--pos)") : (total === 0 ? "var(--ink-3)" : "var(--neg)") }}>
+          {local.length === 0 ? <span style={{ fontWeight: 600, fontSize: 12.5 }}>Nenhum</span> : (isPos ? "+" : "−") + formatBRL(total)}
+        </span>
+        <button
+          onClick={e => { e.stopPropagation(); setShowAdd(o => !o); if (!accOpen) setAccOpen(true); }}
+          style={{ width: 26, height: 26, borderRadius: 7, border: "1px solid var(--line-2)", background: "var(--surface)", display: "grid", placeItems: "center", flexShrink: 0 }}
+          title="Adicionar"
+        >
+          <OrcaIcon name="plus" size={14} style={{ color: "var(--ink-2)" }} />
         </button>
       </div>
 
-      {local.length === 0 && !open && (
-        <div style={{ fontSize: 12.5, color: "var(--ink-3)" }}>Nenhum lançamento</div>
-      )}
-
-      {local.map(e => (
-        <div key={e.id}>
-          {editingId === e.id ? (
-            <div style={{ padding: "8px 0", borderBottom: "1px solid var(--line-2)" }}>
-              <div style={{ display: "flex", gap: 6, marginBottom: 6 }}>
-                <input
-                  className="orça-input"
-                  value={editDesc}
-                  onChange={ev => setEditDesc(ev.target.value)}
-                  placeholder="Descrição"
-                  style={{ flex: 2, fontSize: 13 }}
-                />
-                <div className="input-prefix" style={{ flex: 1 }}>
-                  <span className="pf">R$</span>
-                  <input
-                    className="orça-input num"
-                    type="number"
-                    step="0.01"
-                    value={editAmount}
-                    onChange={ev => setEditAmount(ev.target.value)}
-                    placeholder="0,00"
-                    style={{ fontSize: 13 }}
-                  />
-                </div>
-              </div>
-              <div style={{ display: "flex", gap: 6 }}>
-                <select
-                  className="orça-input"
-                  value={editCategory}
-                  onChange={ev => setEditCategory(ev.target.value as CategoryKey)}
-                  style={{ flex: 1, fontSize: 12 }}
-                >
-                  {(Object.keys(CATEGORIES) as CategoryKey[]).map(k => (
-                    <option key={k} value={k}>{CATEGORIES[k].label}</option>
-                  ))}
-                </select>
-                <button className="btn btn-ghost" style={{ fontSize: 12, padding: "4px 10px" }} onClick={() => setEditingId(null)}>
-                  Cancelar
-                </button>
-                <button
-                  className="btn btn-primary"
-                  style={{ fontSize: 12, padding: "4px 10px" }}
-                  disabled={editSaving || !editDesc || !editAmount}
-                  onClick={() => handleSaveEdit(e)}
-                >
-                  {editSaving ? "..." : <><OrcaIcon name="check" size={13} />Salvar</>}
-                </button>
-              </div>
-              {editError && <div style={{ fontSize: 11.5, color: "var(--neg)", fontWeight: 700, marginTop: 5 }}>✕ Erro ao salvar — tente novamente</div>}
-            </div>
-          ) : (
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "4px 0", fontSize: 13 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 6, opacity: e.id.startsWith("__tmp") ? 0.5 : 1 }}>
-                {e.category && CATEGORIES[e.category as CategoryKey] && (
-                  <span style={{ width: 7, height: 7, borderRadius: "50%", background: CATEGORIES[e.category as CategoryKey].color, flex: "0 0 auto" }} />
-                )}
-                <span style={{ fontWeight: 600, color: "var(--ink-2)" }}>{e.description}</span>
-                {e.installments && e.installments > 1 && (
-                  <span style={{ fontSize: 10, fontWeight: 700, color: "var(--ink-3)", background: "var(--surface-2)", padding: "1px 5px", borderRadius: 4 }}>
-                    {e.installments}x
-                  </span>
-                )}
-              </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <span className="num" style={{ fontWeight: 700, color: isPos ? "var(--pos)" : "var(--neg)" }}>
-                  {isPos ? "+" : "−"}{formatBRL(Number(e.amount))}
-                </span>
-                {!e.id.startsWith("__tmp") && (
-                  <>
-                    {onUpdate && (
-                      <button onClick={() => startEdit(e)}
-                        style={{ background: "none", border: "none", cursor: "pointer", color: "var(--ink-3)", padding: 2 }}>
-                        <OrcaIcon name="edit" size={13} />
+      {/* Accordion body */}
+      <div style={{ display: "grid", gridTemplateRows: accOpen ? "1fr" : "0fr", transition: "grid-template-rows .26s ease" }}>
+        <div style={{ overflow: "hidden", minHeight: 0 }}>
+          <div style={{ padding: "0 18px 12px" }}>
+            {local.map(e => (
+              <div key={e.id}>
+                {editingId === e.id ? (
+                  <div style={{ padding: "8px 0", borderBottom: "1px solid var(--line-2)" }}>
+                    <div style={{ display: "flex", gap: 6, marginBottom: 6 }}>
+                      <input
+                        className="orça-input"
+                        value={editDesc}
+                        onChange={ev => setEditDesc(ev.target.value)}
+                        placeholder="Descrição"
+                        style={{ flex: 2, fontSize: 13 }}
+                      />
+                      <div className="input-prefix" style={{ flex: 1 }}>
+                        <span className="pf">R$</span>
+                        <input
+                          className="orça-input num"
+                          type="number"
+                          step="0.01"
+                          value={editAmount}
+                          onChange={ev => setEditAmount(ev.target.value)}
+                          placeholder="0,00"
+                          style={{ fontSize: 13 }}
+                        />
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", gap: 6 }}>
+                      <select
+                        className="orça-input"
+                        value={editCategory}
+                        onChange={ev => setEditCategory(ev.target.value as CategoryKey)}
+                        style={{ flex: 1, fontSize: 12 }}
+                      >
+                        {(Object.keys(CATEGORIES) as CategoryKey[]).map(k => (
+                          <option key={k} value={k}>{CATEGORIES[k].label}</option>
+                        ))}
+                      </select>
+                      <button className="btn btn-ghost" style={{ fontSize: 12, padding: "4px 10px" }} onClick={() => setEditingId(null)}>
+                        Cancelar
                       </button>
-                    )}
-                    <button onClick={() => setPendingDelete(pendingDelete?.id === e.id ? null : e)}
-                      style={{ background: "none", border: "none", cursor: "pointer", color: pendingDelete?.id === e.id ? "var(--neg)" : "var(--ink-3)", padding: 2 }}>
-                      <OrcaIcon name="trash" size={13} />
-                    </button>
-                  </>
+                      <button
+                        className="btn btn-primary"
+                        style={{ fontSize: 12, padding: "4px 10px" }}
+                        disabled={editSaving || !editDesc || !editAmount}
+                        onClick={() => handleSaveEdit(e)}
+                      >
+                        {editSaving ? "..." : <><OrcaIcon name="check" size={13} />Salvar</>}
+                      </button>
+                    </div>
+                    {editError && <div style={{ fontSize: 11.5, color: "var(--neg)", fontWeight: 700, marginTop: 5 }}>✕ Erro ao salvar — tente novamente</div>}
+                  </div>
+                ) : (
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "4px 0", fontSize: 13 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, opacity: e.id.startsWith("__tmp") ? 0.5 : 1 }}>
+                      {e.category && CATEGORIES[e.category as CategoryKey] && (
+                        <span style={{ width: 7, height: 7, borderRadius: "50%", background: CATEGORIES[e.category as CategoryKey].color, flex: "0 0 auto" }} />
+                      )}
+                      <span style={{ fontWeight: 600, color: "var(--ink-2)" }}>{e.description}</span>
+                      {e.installments && e.installments > 1 && (
+                        <span style={{ fontSize: 10, fontWeight: 700, color: "var(--ink-3)", background: "var(--surface-2)", padding: "1px 5px", borderRadius: 4 }}>
+                          {e.installments}x
+                        </span>
+                      )}
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <span className="num" style={{ fontWeight: 700, color: isPos ? "var(--pos)" : "var(--neg)" }}>
+                        {isPos ? "+" : "−"}{formatBRL(Number(e.amount))}
+                      </span>
+                      {!e.id.startsWith("__tmp") && (
+                        (e.groupId?.startsWith("salary-entry-") || e.groupId?.startsWith("bonus-entry-") || e.groupId?.startsWith("credit-entry-") || e.groupId?.startsWith("sub-entry-") || e.groupId?.startsWith("loan-entry-")) && onTogglePaid ? (
+                          <PayToggle
+                            paid={e.isPaid ?? false}
+                            onToggle={() => {
+                              const next = !(e.isPaid ?? false);
+                              setLocal(prev => prev.map(r => r.id === e.id ? { ...r, isPaid: next } : r));
+                              onTogglePaid(e.id, next);
+                            }}
+                            label={{ paid: "Recebido", pending: "Receber" }}
+                          />
+                        ) : (
+                          <>
+                            {onUpdate && (
+                              <button onClick={() => startEdit(e)}
+                                style={{ background: "none", border: "none", cursor: "pointer", color: "var(--ink-3)", padding: 2 }}>
+                                <OrcaIcon name="edit" size={13} />
+                              </button>
+                            )}
+                            <button onClick={() => setPendingDelete(pendingDelete?.id === e.id ? null : e)}
+                              style={{ background: "none", border: "none", cursor: "pointer", color: pendingDelete?.id === e.id ? "var(--neg)" : "var(--ink-3)", padding: 2 }}>
+                              <OrcaIcon name="trash" size={13} />
+                            </button>
+                          </>
+                        )
+                      )}
+                    </div>
+                  </div>
+                )}
+                {pendingDelete?.id === e.id && (
+                  <DeleteEntryDialog
+                    description={e.description}
+                    installments={e.installments}
+                    onDeleteOne={() => handleDeleteOne(e)}
+                    onDeleteAll={onDeleteGroup ? () => handleDeleteAll(e) : undefined}
+                    onCancel={() => setPendingDelete(null)}
+                  />
                 )}
               </div>
-            </div>
-          )}
-          {pendingDelete?.id === e.id && (
-            <DeleteEntryDialog
-              description={e.description}
-              installments={e.installments}
-              onDeleteOne={() => handleDeleteOne(e)}
-              onDeleteAll={onDeleteGroup ? () => handleDeleteAll(e) : undefined}
-              onCancel={() => setPendingDelete(null)}
-            />
-          )}
+            ))}
+
+            {addError && (
+              <div style={{ fontSize: 12, color: "var(--neg)", fontWeight: 700, marginTop: 8 }}>✕ Erro ao salvar — tente novamente</div>
+            )}
+
+            {showAdd && onAddBatch && cardMonth && cardYear && (
+              <BankEntryForm
+                defaultType={type}
+                cardMonth={cardMonth}
+                cardYear={cardYear}
+                onSave={async items => {
+                  setAddError(false);
+                  const ok = await onAddBatch(items);
+                  if (ok) { setShowAdd(false); return true; }
+                  setAddError(true);
+                  return false;
+                }}
+                onCancel={() => { setShowAdd(false); setAddError(false); }}
+              />
+            )}
+          </div>
         </div>
-      ))}
-
-      {local.length > 0 && (
-        <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 0 2px", borderTop: "1px solid var(--line-2)", marginTop: 6, fontSize: 13, fontWeight: 800 }}>
-          <span>Total {label.toLowerCase()}</span>
-          <span className="num" style={{ color: isPos ? "var(--pos)" : "var(--neg)" }}>
-            {isPos ? "+" : "−"}{formatBRL(total)}
-          </span>
-        </div>
-      )}
-
-      {addError && (
-        <div style={{ fontSize: 12, color: "var(--neg)", fontWeight: 700, marginTop: 8 }}>✕ Erro ao salvar — tente novamente</div>
-      )}
-
-      {open && onAddBatch && cardMonth && cardYear && (
-        <BankEntryForm
-          defaultType={type}
-          cardMonth={cardMonth}
-          cardYear={cardYear}
-          onSave={async items => {
-            setAddError(false);
-            const ok = await onAddBatch(items);
-            if (ok) { setOpen(false); return true; }
-            setAddError(true);
-            return false;
-          }}
-          onCancel={() => { setOpen(false); setAddError(false); }}
-        />
-      )}
+      </div>
     </div>
   );
 }
@@ -748,6 +780,11 @@ function BillForm({ bank, cutoffDay, dueDay, month, year, onSave, onCancel }: {
   const [saving, setSaving] = useState(false);
   const [showCsv, setShowCsv] = useState(false);
 
+  function handleTxTypeChange(t: "EXPENSE" | "INCOME") {
+    setTxType(t);
+    setSelectedCat(t === "INCOME" ? "salario" : "compras");
+  }
+
   const hasCutoff = !!(cutoffDay && dueDay);
   const amountVal = parseFloat(amount) || 0;
   const effectiveParcelas = Math.max(1, parcelas);
@@ -816,7 +853,7 @@ function BillForm({ bank, cutoffDay, dueDay, month, year, onSave, onCancel }: {
         {/* Tipo */}
         <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
           {([["EXPENSE", "⬇ Débito"], ["INCOME", "⬆ Estorno"]] as const).map(([t, lbl]) => (
-            <button key={t} onClick={() => setTxType(t)} style={{
+            <button key={t} onClick={() => handleTxTypeChange(t)} style={{
               padding: "5px 12px", fontSize: 12, fontWeight: 700, borderRadius: "var(--r-sm)", cursor: "pointer",
               border: `1.5px solid ${txType === t ? (t === "INCOME" ? "var(--pos)" : "var(--accent)") : "var(--line)"}`,
               background: txType === t ? (t === "INCOME" ? "var(--pos-soft, #e6f4ea)" : "var(--accent-soft)") : "var(--surface)",
@@ -881,15 +918,13 @@ function BillForm({ bank, cutoffDay, dueDay, month, year, onSave, onCancel }: {
         </div>
 
         {/* Categoria */}
-        <div style={{ marginBottom: 12 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: "var(--ink-3)", marginBottom: 6 }}>Categoria</div>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
-            {(Object.entries(CATEGORIES) as [CategoryKey, typeof CATEGORIES[CategoryKey]][]).map(([k, c]) => (
-              <span key={k} className={`opt${selectedCat === k ? " sel" : ""}`} onClick={() => setSelectedCat(k)} style={{ cursor: "pointer", fontSize: 11, padding: "4px 9px" }}>
-                <span style={{ width: 6, height: 6, borderRadius: "50%", background: c.color }} />{c.label}
-              </span>
+        <div className="field" style={{ marginBottom: 12 }}>
+          <label style={{ fontSize: 11, fontWeight: 700, color: "var(--ink-3)" }}>Categoria</label>
+          <select className="orça-input" value={selectedCat} onChange={e => setSelectedCat(e.target.value as CategoryKey)} style={{ fontSize: 13, width: "100%" }}>
+            {categoriesFor(txType === "INCOME" ? "income" : "expense").map(([k, c]) => (
+              <option key={k} value={k}>{c.label}</option>
             ))}
-          </div>
+          </select>
         </div>
 
         <div style={{ display: "flex", gap: 8 }}>
@@ -1084,7 +1119,7 @@ function BankCard({
   onSaveBalance, onClearBalance, onAddFee, onDeleteFee, onAddEntry, onDeleteEntry, onUpdateEntry,
   onAddBillTxs, onDeleteBillTx, onDeleteBillTxGroup, onDeleteEntryGroup, onTogglePaid,
   onPayAllBillTxs, onDeleteAllBillTxs,
-  onAddEntryBatch,
+  onAddEntryBatch, onToggleEntryPaid,
   isCustom, onDeleteBank, onConfigureBank, isClosed = false, onToggleClose,
   month, year, isFuture = false,
   cutoffDay, dueDay,
@@ -1114,6 +1149,7 @@ function BankCard({
   onDeleteAllBillTxs?: () => Promise<void>;
   onDeleteEntryGroup?: (entry: CardEntry) => Promise<void>;
   onTogglePaid?: (id: string, isPaid: boolean) => Promise<void>;
+  onToggleEntryPaid?: (id: string, isPaid: boolean) => Promise<void>;
   isCustom?: boolean;
   onDeleteBank?: () => Promise<void>;
   onConfigureBank?: () => void;
@@ -1142,6 +1178,9 @@ function BankCard({
   const [showBillForm, setShowBillForm] = useState(false);
   const [pendingBillDelete, setPendingBillDelete] = useState<FullBillTx | null>(null);
   const [showExtract, setShowExtract] = useState(false);
+  const [showBalForm, setShowBalForm] = useState(false);
+  const [openTarifas, setOpenTarifas] = useState(false);
+  const [openFatura, setOpenFatura] = useState(false);
 
   // Evita vazamento de saldo local ao trocar de mês (mesma key do componente por banco)
   // Reset completo só ao trocar de mês — nunca zera localBal por fetch stale
@@ -1259,124 +1298,151 @@ function BankCard({
       )}
 
       {/* ── Header ── */}
-      <div style={{ padding: "14px 20px", background: color, color: textColor, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <div style={{ width: 34, height: 34, borderRadius: 9, background: "rgba(255,255,255,0.18)", display: "grid", placeItems: "center", fontFamily: "var(--font-display)", fontWeight: 800, fontSize: 13 }}>
-            {short}
+      <div style={{ background: color, color: textColor }}>
+        {/* Top row */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 18px 10px" }}>
+          {/* LEFT: badge + name */}
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <div style={{ width: 42, height: 42, borderRadius: 12, background: "rgba(255,255,255,.2)", border: "1px solid rgba(255,255,255,.25)", display: "grid", placeItems: "center", fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 15, color: textColor, flexShrink: 0 }}>
+              {short}
+            </div>
+            <div>
+              <div style={{ fontWeight: 700, fontSize: 17, letterSpacing: "-.01em" }}>{name}</div>
+              <div style={{ fontSize: 11.5, opacity: 0.82 }}>Conta corrente</div>
+            </div>
           </div>
-          <div>
-            <div style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 17 }}>{name}</div>
-            <div style={{ fontSize: 11.5, opacity: 0.75, fontWeight: 600 }}>Saldo real</div>
+          {/* RIGHT: balance + actions */}
+          <div style={{ display: "flex", alignItems: "flex-end", flexDirection: "column", gap: 6 }}>
+            <div style={{ textAlign: "right" }}>
+              <div style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: ".05em", opacity: 0.8, marginBottom: 2 }}>Saldo real</div>
+              <div style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 24, letterSpacing: "-.02em" }}>
+                {formatBRL(saldoConta)}
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 5 }}>
+              {onAddEntryBatch && (
+                <button onClick={() => setShowExtract(true)} style={{ width: 30, height: 30, background: "rgba(255,255,255,.16)", border: "none", cursor: "pointer", color: textColor, borderRadius: 8, display: "grid", placeItems: "center" }} title="Importar extrato CSV">
+                  <OrcaIcon name="upload" size={14} />
+                </button>
+              )}
+              {onConfigureBank && (
+                <button onClick={onConfigureBank} style={{ width: 30, height: 30, background: "rgba(255,255,255,.16)", border: "none", cursor: "pointer", color: textColor, borderRadius: 8, display: "grid", placeItems: "center" }} title="Configurar banco">
+                  <OrcaIcon name="settings" size={14} />
+                </button>
+              )}
+              {isCustom && onDeleteBank && (
+                <button onClick={onDeleteBank} style={{ width: 30, height: 30, background: "rgba(255,255,255,.16)", border: "none", cursor: "pointer", color: textColor, borderRadius: 8, display: "grid", placeItems: "center" }} title="Excluir banco">
+                  <OrcaIcon name="trash" size={13} />
+                </button>
+              )}
+            </div>
           </div>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <div style={{ textAlign: "right" }}>
-            <div style={{ fontFamily: "var(--font-display)", fontWeight: 800, fontSize: 22, letterSpacing: "-.02em" }}>
-              {formatBRL(saldoConta)}
+        {/* Stats strip */}
+        <div style={{ display: "flex", gap: 7, padding: "0 18px 14px" }}>
+          {[
+            { label: "Inicial", value: saldoInicial, prefix: "" },
+            { label: "Entradas", value: localEntTotal, prefix: "+" },
+            { label: "Saídas", value: localSaiTotal, prefix: "−" },
+            { label: "Tarifas", value: totalFees, prefix: "−" },
+            ...(hasCreditCard ? [{ label: "Fatura", value: netBill, prefix: "−" }] : []),
+          ].map(stat => (
+            <div key={stat.label} style={{ flex: 1, background: "rgba(255,255,255,.14)", borderRadius: 10, padding: "8px 9px" }}>
+              <div style={{ fontSize: 9.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".03em", opacity: 0.82, marginBottom: 2 }}>{stat.label}</div>
+              <div className="num" style={{ fontSize: 13, fontWeight: 700 }}>
+                {stat.value === 0 ? "—" : stat.prefix + formatBRL(stat.value)}
+              </div>
             </div>
-            {totalInvest > 0 && (
-              <div style={{ fontSize: 11, opacity: 0.7, fontWeight: 600 }}>+{formatBRL(totalInvest)} invest.</div>
-            )}
-          </div>
-          <div style={{ display: "flex", gap: 6 }}>
-            {onAddEntryBatch && (
-              <button onClick={() => setShowExtract(true)} style={{ background: "rgba(255,255,255,0.18)", border: "none", cursor: "pointer", color: textColor, width: 28, height: 28, borderRadius: 6, display: "grid", placeItems: "center" }} title="Importar extrato CSV">
-                <OrcaIcon name="upload" size={14} />
-              </button>
-            )}
-            {onConfigureBank && (
-              <button onClick={onConfigureBank} style={{ background: "rgba(255,255,255,0.18)", border: "none", cursor: "pointer", color: textColor, width: 28, height: 28, borderRadius: 6, display: "grid", placeItems: "center" }} title="Configurar banco">
-                <OrcaIcon name="settings" size={14} />
-              </button>
-            )}
-            {isCustom && onDeleteBank && (
-              <button onClick={onDeleteBank} style={{ background: "rgba(0,0,0,0.2)", border: "none", cursor: "pointer", color: textColor, width: 28, height: 28, borderRadius: 6, display: "grid", placeItems: "center" }} title="Excluir banco">
-                <OrcaIcon name="trash" size={13} />
-              </button>
-            )}
-          </div>
+          ))}
         </div>
       </div>
 
-      {/* ── Saldo de fechamento do mês anterior (carry-forward) ── */}
-      {prevBalance !== null && (
-        <div style={{ padding: "8px 20px", borderBottom: "1px solid var(--line-2)", display: "flex", justifyContent: "space-between", alignItems: "center", background: "var(--surface-2)" }}>
-          <span style={{ fontSize: 12, fontWeight: 600, color: "var(--ink-3)" }}>
-            {isFuture ? "Saldo inicial projetado (mês anterior)" : "Saldo de fechamento do mês anterior"}
-          </span>
-          <span className="num" style={{ fontSize: 13, fontWeight: 700, color: prevBalance >= 0 ? "var(--pos)" : "var(--neg)" }}>
-            {formatBRL(prevBalance)}
-          </span>
-        </div>
-      )}
-
-      {/* ── Saldo inicial ── */}
-      <div style={{ padding: "14px 20px", borderBottom: "1px solid var(--line-2)" }}>
-        <div className="section-label" style={{ marginBottom: 9 }}>Saldo inicial do mês</div>
-
-        {prevBalance !== null && localBal === null && entradas.length === 0 && saidas.length === 0 && (
+      {/* ── Saldo inicial (slim row) ── */}
+      <div style={{ borderBottom: "1px solid var(--line)" }}>
+        <div style={{ display: "flex", alignItems: "center", padding: "11px 18px" }}>
+          <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <span style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".05em", color: "var(--ink-3)" }}>Saldo inicial</span>
+            <span className="num" style={{ fontSize: 14, fontWeight: 700, color: "var(--ink)" }}>{formatBRL(localBal ?? (prevBalance ?? 0))}</span>
+            {prevBalance !== null && (
+              <span style={{ fontSize: 11.5, color: "var(--ink-3)" }}>
+                · fechamento anterior {formatBRL(prevBalance)}
+              </span>
+            )}
+          </div>
           <button
-            className="btn btn-ghost"
-            style={{ width: "100%", justifyContent: "center", fontSize: 12, marginBottom: 10 }}
-            disabled={savingBal}
-            onClick={async () => {
-              setSavingBal(true);
-              setBalStatus(null);
-              try {
-                const ok = await onSaveBalance(prevBalance);
-                if (ok) {
-                  setLocalBal(prevBalance);
-                  setBalInput("");
-                  inputClearedRef.current = true;
-                  setBalStatus("ok");
-                  setTimeout(() => setBalStatus(null), 3000);
-                } else {
-                  setBalStatus("err");
-                }
-              } finally { setSavingBal(false); }
-            }}
+            onClick={() => setShowBalForm(o => !o)}
+            style={{ display: "flex", alignItems: "center", gap: 5, border: "1px solid var(--line-2)", borderRadius: 8, padding: "6px 10px", fontSize: 12, fontWeight: 700, color: "var(--ink-2)", background: "var(--surface)", cursor: "pointer", flexShrink: 0 }}
           >
-            <OrcaIcon name="wallet" size={13} />
-            {savingBal ? "Salvando..." : `Usar saldo do mês anterior como inicial (${formatBRL(prevBalance)})`}
-          </button>
-        )}
-
-        <div style={{ display: "flex", gap: 8 }}>
-          <div className="input-prefix" style={{ flex: 1 }}>
-            <span className="pf">R$</span>
-            <input className="orça-input num" type="number" step="0.01" value={balInput} onChange={e => setBalInput(e.target.value)} onKeyDown={e => e.key === "Enter" && handleSaveBal()} placeholder="0,00" style={{ fontSize: 15, fontWeight: 700 }} />
-          </div>
-          <button className="btn btn-primary" style={{ padding: "8px 14px", fontSize: 13, whiteSpace: "nowrap" }} disabled={savingBal || balInput === ""} onClick={handleSaveBal}>
-            {savingBal ? "..." : <><OrcaIcon name="check" size={14} />Incluir</>}
+            <OrcaIcon name="edit" size={13} />Ajustar
           </button>
         </div>
-        {balStatus === "err" && (
-          <div style={{ marginTop: 7, fontSize: 12, color: "var(--neg)", fontWeight: 700 }}>
-            ✕ Erro ao salvar — verifique a conexão
-          </div>
-        )}
-        {balStatus === "ok" && (
-          <div style={{ marginTop: 7, fontSize: 12, color: "var(--pos)", fontWeight: 700 }}>
-            ✓ Salvo no banco com sucesso
-          </div>
-        )}
-        {localBal !== null && (
-          <div style={{ marginTop: 7, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <span style={{ fontSize: 12, color: "var(--ink-3)", fontWeight: 600 }}>
-              Registrado: <span className="num" style={{ color: "var(--pos)", fontWeight: 700 }}>{formatBRL(localBal)}</span>
-            </span>
-            {onClearBalance && (
+        {/* Collapsible balance form */}
+        {showBalForm && (
+          <div style={{ padding: "0 18px 14px" }}>
+            {prevBalance !== null && localBal === null && entradas.length === 0 && saidas.length === 0 && (
               <button
+                className="btn btn-ghost"
+                style={{ width: "100%", justifyContent: "center", fontSize: 12, marginBottom: 10 }}
+                disabled={savingBal}
                 onClick={async () => {
-                  if (!confirm("Limpar saldo deste mês?")) return;
-                  await onClearBalance();
-                  setLocalBal(null);
-                  setBalInput("");
+                  setSavingBal(true);
+                  setBalStatus(null);
+                  try {
+                    const ok = await onSaveBalance(prevBalance);
+                    if (ok) {
+                      setLocalBal(prevBalance);
+                      setBalInput("");
+                      inputClearedRef.current = true;
+                      setBalStatus("ok");
+                      setTimeout(() => setBalStatus(null), 3000);
+                    } else {
+                      setBalStatus("err");
+                    }
+                  } finally { setSavingBal(false); }
                 }}
-                style={{ background: "none", border: "none", cursor: "pointer", color: "var(--neg)", padding: "2px 4px", fontSize: 11, fontWeight: 700, display: "flex", alignItems: "center", gap: 4 }}
               >
-                <OrcaIcon name="trash" size={12} />Limpar
+                <OrcaIcon name="wallet" size={13} />
+                {savingBal ? "Salvando..." : `Usar saldo do mês anterior como inicial (${formatBRL(prevBalance)})`}
               </button>
+            )}
+            <div style={{ display: "flex", gap: 8 }}>
+              <div className="input-prefix" style={{ flex: 1 }}>
+                <span className="pf">R$</span>
+                <input className="orça-input num" type="number" step="0.01" value={balInput} onChange={e => setBalInput(e.target.value)} onKeyDown={e => e.key === "Enter" && handleSaveBal()} placeholder="0,00" style={{ fontSize: 15, fontWeight: 700 }} />
+              </div>
+              <button className="btn btn-primary" style={{ padding: "8px 14px", fontSize: 13, whiteSpace: "nowrap" }} disabled={savingBal || balInput === ""} onClick={handleSaveBal}>
+                {savingBal ? "..." : <><OrcaIcon name="check" size={14} />Incluir</>}
+              </button>
+            </div>
+            {balStatus === "err" && (
+              <div style={{ marginTop: 7, fontSize: 12, color: "var(--neg)", fontWeight: 700 }}>
+                ✕ Erro ao salvar — verifique a conexão
+              </div>
+            )}
+            {balStatus === "ok" && (
+              <div style={{ marginTop: 7, fontSize: 12, color: "var(--pos)", fontWeight: 700 }}>
+                ✓ Salvo no banco com sucesso
+              </div>
+            )}
+            {localBal !== null && (
+              <div style={{ marginTop: 7, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <span style={{ fontSize: 12, color: "var(--ink-3)", fontWeight: 600 }}>
+                  Registrado: <span className="num" style={{ color: "var(--pos)", fontWeight: 700 }}>{formatBRL(localBal)}</span>
+                </span>
+                {onClearBalance && (
+                  <button
+                    onClick={async () => {
+                      if (!confirm("Limpar saldo deste mês?")) return;
+                      await onClearBalance();
+                      setLocalBal(null);
+                      setBalInput("");
+                    }}
+                    style={{ background: "none", border: "none", cursor: "pointer", color: "var(--neg)", padding: "2px 4px", fontSize: 11, fontWeight: 700, display: "flex", alignItems: "center", gap: 4 }}
+                  >
+                    <OrcaIcon name="trash" size={12} />Limpar
+                  </button>
+                )}
+              </div>
             )}
           </div>
         )}
@@ -1387,198 +1453,208 @@ function BankCard({
         onAdd={(d, a) => onAddEntry(d, a, "INCOME")} onDelete={onDeleteEntry}
         onUpdate={onUpdateEntry}
         onDeleteGroup={onDeleteEntryGroup} onTotalChange={setLocalEntTotal}
-        cardMonth={month} cardYear={year} onAddBatch={onAddEntryBatch} />
+        cardMonth={month} cardYear={year} onAddBatch={onAddEntryBatch}
+        onTogglePaid={onToggleEntryPaid} />
 
       {/* ── Saídas ── */}
       <EntrySection label="Saídas" type="EXPENSE" entries={saidas}
         onAdd={(d, a) => onAddEntry(d, a, "EXPENSE")} onDelete={onDeleteEntry}
         onUpdate={onUpdateEntry}
         onDeleteGroup={onDeleteEntryGroup} onTotalChange={setLocalSaiTotal}
-        cardMonth={month} cardYear={year} onAddBatch={onAddEntryBatch} />
+        cardMonth={month} cardYear={year} onAddBatch={onAddEntryBatch}
+        onTogglePaid={onToggleEntryPaid} />
 
       {/* ── Tarifas ── */}
-      <div style={{ padding: "12px 20px", borderBottom: "1px solid var(--line-2)" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: fees.length > 0 || showFeeForm ? 9 : 0 }}>
-          <span className="section-label">Tarifas bancárias</span>
-          <button className="btn btn-ghost" style={{ padding: "4px 10px", fontSize: 11 }} onClick={() => setShowFeeForm(o => !o)}>
-            <OrcaIcon name="plus" size={12} />{showFeeForm ? "Cancelar" : "Adicionar"}
+      <div style={{ borderBottom: "1px solid var(--line-2)" }}>
+        {/* Accordion header */}
+        <div role="button" tabIndex={0} onClick={() => setOpenTarifas(o => !o)} onKeyDown={e => (e.key === "Enter" || e.key === " ") && setOpenTarifas(o => !o)} style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "12px 18px", background: "none", border: "none", textAlign: "left", cursor: "pointer" }}>
+          <span style={{ display: "grid", placeItems: "center", color: "var(--ink-3)", transition: "transform .2s", transform: openTarifas ? "rotate(90deg)" : "rotate(0)" }}>
+            <OrcaIcon name="chevR" size={16} />
+          </span>
+          <span style={{ width: 8, height: 8, borderRadius: 3, flexShrink: 0, background: "var(--warn, #C98A1E)" }} />
+          <span style={{ fontSize: 12, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: "var(--ink-2)" }}>Tarifas bancárias</span>
+          {fees.length > 0 && (
+            <span style={{ fontSize: 11, fontWeight: 700, color: "var(--ink-3)", background: "var(--surface-2)", borderRadius: 999, padding: "2px 8px" }}>
+              {fees.length}
+            </span>
+          )}
+          <span style={{ flex: 1 }} />
+          <span className="num" style={{ fontWeight: 700, fontSize: 13.5, color: fees.length === 0 ? "var(--ink-3)" : "var(--neg)" }}>
+            {fees.length === 0 ? <span style={{ fontWeight: 600, fontSize: 12.5 }}>Nenhuma</span> : "−" + formatBRL(totalFees)}
+          </span>
+          <button
+            onClick={e => { e.stopPropagation(); setShowFeeForm(o => !o); if (!openTarifas) setOpenTarifas(true); }}
+            style={{ width: 26, height: 26, borderRadius: 7, border: "1px solid var(--line-2)", background: "var(--surface)", display: "grid", placeItems: "center", flexShrink: 0 }}
+            title="Adicionar tarifa"
+          >
+            <OrcaIcon name="plus" size={14} style={{ color: "var(--ink-2)" }} />
           </button>
         </div>
 
-        {fees.length === 0 && !showFeeForm && <div style={{ fontSize: 12.5, color: "var(--ink-3)" }}>Nenhuma tarifa configurada</div>}
+        {/* Accordion body */}
+        <div style={{ display: "grid", gridTemplateRows: openTarifas ? "1fr" : "0fr", transition: "grid-template-rows .26s ease" }}>
+          <div style={{ overflow: "hidden", minHeight: 0 }}>
+            <div style={{ padding: "0 18px 12px" }}>
+              {fees.map(fee => (
+                <div key={fee.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "4px 0", fontSize: 13 }}>
+                  <div>
+                    <span style={{ fontWeight: 600, color: "var(--ink-2)" }}>{fee.name}</span>
+                    <span style={{ fontSize: 11, color: "var(--ink-3)", marginLeft: 6 }}>dia {fee.billingDay}</span>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span className="num" style={{ color: "var(--neg)", fontWeight: 700 }}>−{formatBRL(Number(fee.amount))}</span>
+                    <button onClick={() => onDeleteFee(fee.id)} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--neg)", padding: 2 }}>
+                      <OrcaIcon name="trash" size={13} />
+                    </button>
+                  </div>
+                </div>
+              ))}
 
-        {fees.map(fee => (
-          <div key={fee.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "4px 0", fontSize: 13 }}>
-            <div>
-              <span style={{ fontWeight: 600, color: "var(--ink-2)" }}>{fee.name}</span>
-              <span style={{ fontSize: 11, color: "var(--ink-3)", marginLeft: 6 }}>dia {fee.billingDay}</span>
-            </div>
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <span className="num" style={{ color: "var(--neg)", fontWeight: 700 }}>−{formatBRL(Number(fee.amount))}</span>
-              <button onClick={() => onDeleteFee(fee.id)} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--neg)", padding: 2 }}>
-                <OrcaIcon name="trash" size={13} />
-              </button>
+              {showFeeForm && (
+                <div style={{ marginTop: 10, padding: 12, background: "var(--surface-2)", borderRadius: "var(--r-md)", border: "1px solid var(--line)" }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 96px 80px", gap: 8, marginBottom: 8 }}>
+                    <input className="orça-input" placeholder="Nome da tarifa" value={feeName} onChange={e => setFeeName(e.target.value)} style={{ fontSize: 13 }} />
+                    <input className="orça-input num" type="number" step="0.01" placeholder="Valor R$" value={feeAmount} onChange={e => setFeeAmount(e.target.value)} style={{ fontSize: 13 }} />
+                    <input className="orça-input num" type="number" min="1" max="31" placeholder="Dia" value={feeDay} onChange={e => setFeeDay(e.target.value)} style={{ fontSize: 13, textAlign: "center" }} />
+                  </div>
+                  <div style={{ fontSize: 11, color: "var(--ink-3)", fontWeight: 600, marginBottom: feeError ? 4 : 8 }}>Nome · Valor (R$) · Dia de cobrança</div>
+                  {feeError && <div style={{ fontSize: 12, color: "var(--neg)", fontWeight: 700, marginBottom: 8 }}>✕ Erro ao salvar tarifa — tente novamente</div>}
+                  <button className="btn btn-primary" style={{ width: "100%", justifyContent: "center", fontSize: 13 }} disabled={savingFee || !feeName || !feeAmount} onClick={handleAddFee}>
+                    {savingFee ? "Salvando..." : <><OrcaIcon name="check" size={13} />Salvar tarifa</>}
+                  </button>
+                </div>
+              )}
             </div>
           </div>
-        ))}
-
-        {fees.length > 0 && (
-          <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 0 2px", borderTop: "1px solid var(--line-2)", marginTop: 6, fontSize: 13, fontWeight: 800 }}>
-            <span>Total tarifas</span>
-            <span className="num" style={{ color: "var(--neg)" }}>−{formatBRL(totalFees)}</span>
-          </div>
-        )}
-
-        {showFeeForm && (
-          <div style={{ marginTop: 10, padding: 12, background: "var(--surface-2)", borderRadius: "var(--r-md)", border: "1px solid var(--line)" }}>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 96px 80px", gap: 8, marginBottom: 8 }}>
-              <input className="orça-input" placeholder="Nome da tarifa" value={feeName} onChange={e => setFeeName(e.target.value)} style={{ fontSize: 13 }} />
-              <input className="orça-input num" type="number" step="0.01" placeholder="Valor R$" value={feeAmount} onChange={e => setFeeAmount(e.target.value)} style={{ fontSize: 13 }} />
-              <input className="orça-input num" type="number" min="1" max="31" placeholder="Dia" value={feeDay} onChange={e => setFeeDay(e.target.value)} style={{ fontSize: 13, textAlign: "center" }} />
-            </div>
-            <div style={{ fontSize: 11, color: "var(--ink-3)", fontWeight: 600, marginBottom: feeError ? 4 : 8 }}>Nome · Valor (R$) · Dia de cobrança</div>
-            {feeError && <div style={{ fontSize: 12, color: "var(--neg)", fontWeight: 700, marginBottom: 8 }}>✕ Erro ao salvar tarifa — tente novamente</div>}
-            <button className="btn btn-primary" style={{ width: "100%", justifyContent: "center", fontSize: 13 }} disabled={savingFee || !feeName || !feeAmount} onClick={handleAddFee}>
-              {savingFee ? "Salvando..." : <><OrcaIcon name="check" size={13} />Salvar tarifa</>}
-            </button>
-          </div>
-        )}
+        </div>
       </div>
 
       {/* ── Fatura Cartão de Crédito ── */}
       {hasCreditCard && (
         <div style={{ borderBottom: "1px solid var(--line-2)" }}>
-          {/* Header da seção */}
-          <div style={{ padding: "10px 20px 10px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
-            <span className="section-label">Fatura Cartão de Crédito</span>
-            <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-              {billTransactions.length > 0 && (
-                <>
-                  {onPayAllBillTxs && billTransactions.some(t => !t.isPaid) && (
-                    <button
-                      className="btn btn-ghost"
-                      style={{ padding: "4px 10px", fontSize: 11, color: "var(--pos)", borderColor: "var(--pos)" }}
-                      onClick={onPayAllBillTxs}
-                    >
-                      <OrcaIcon name="check" size={12} />Pagar todos
-                    </button>
-                  )}
-                  {onDeleteAllBillTxs && (
-                    <button
-                      className="btn btn-ghost"
-                      style={{ padding: "4px 10px", fontSize: 11, color: "var(--neg)", borderColor: "var(--neg)" }}
-                      onClick={onDeleteAllBillTxs}
-                    >
-                      <OrcaIcon name="trash" size={12} />Excluir todos
-                    </button>
-                  )}
-                </>
-              )}
-              <button className="btn btn-ghost" style={{ padding: "4px 10px", fontSize: 11 }} onClick={() => setShowBillForm(o => !o)}>
-                <OrcaIcon name="plus" size={12} />{showBillForm ? "Cancelar" : "Adicionar"}
+          {/* Accordion header */}
+          <div role="button" tabIndex={0} onClick={() => setOpenFatura(o => !o)} onKeyDown={e => (e.key === "Enter" || e.key === " ") && setOpenFatura(o => !o)} style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "12px 18px", background: "none", border: "none", textAlign: "left", cursor: "pointer" }}>
+            <span style={{ display: "grid", placeItems: "center", color: "var(--ink-3)", transition: "transform .2s", transform: openFatura ? "rotate(90deg)" : "rotate(0)" }}>
+              <OrcaIcon name="chevR" size={16} />
+            </span>
+            <span style={{ width: 8, height: 8, borderRadius: 3, flexShrink: 0, background: color, opacity: 0.8 }} />
+            <span style={{ fontSize: 12, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: "var(--ink-2)" }}>Fatura cartão</span>
+            {billTransactions.length > 0 && (
+              <span style={{ fontSize: 11, fontWeight: 700, color: "var(--ink-3)", background: "var(--surface-2)", borderRadius: 999, padding: "2px 8px" }}>
+                {billTransactions.length}
+              </span>
+            )}
+            <span style={{ flex: 1 }} />
+            {billTransactions.length > 0 && onPayAllBillTxs && billTransactions.some(t => !t.isPaid) && (
+              <button
+                onClick={e => { e.stopPropagation(); onPayAllBillTxs(); }}
+                style={{ display: "flex", alignItems: "center", gap: 4, padding: "4px 8px", fontSize: 11, fontWeight: 700, color: "var(--pos)", border: "1px solid var(--pos)", borderRadius: 6, background: "var(--surface)", cursor: "pointer", flexShrink: 0 }}
+              >
+                <OrcaIcon name="check" size={11} />Pagar todos
               </button>
-            </div>
+            )}
+            {billTransactions.length > 0 && onDeleteAllBillTxs && (
+              <button
+                onClick={e => { e.stopPropagation(); onDeleteAllBillTxs(); }}
+                style={{ display: "flex", alignItems: "center", gap: 4, padding: "4px 8px", fontSize: 11, fontWeight: 700, color: "var(--neg)", border: "1px solid var(--neg)", borderRadius: 6, background: "var(--surface)", cursor: "pointer", flexShrink: 0 }}
+              >
+                <OrcaIcon name="trash" size={11} />Excluir todos
+              </button>
+            )}
+            <span className="num" style={{ fontWeight: 700, fontSize: 13.5, color: billTransactions.length === 0 ? "var(--ink-3)" : "var(--neg)" }}>
+              {billTransactions.length === 0 ? <span style={{ fontWeight: 600, fontSize: 12.5 }}>Nenhuma</span> : "−" + formatBRL(netBill)}
+            </span>
+            <button
+              onClick={e => { e.stopPropagation(); setShowBillForm(o => !o); if (!openFatura) setOpenFatura(true); }}
+              style={{ width: 26, height: 26, borderRadius: 7, border: "1px solid var(--line-2)", background: "var(--surface)", display: "grid", placeItems: "center", flexShrink: 0 }}
+              title="Adicionar lançamento"
+            >
+              <OrcaIcon name="plus" size={14} style={{ color: "var(--ink-2)" }} />
+            </button>
           </div>
 
-          {/* Inline form */}
-          {showBillForm && onAddBillTxs && (
-            <div style={{ padding: "0 16px 8px" }}>
-              <BillForm
-                bank={bankId}
-                cutoffDay={cutoffDay}
-                dueDay={dueDay}
-                month={month}
-                year={year}
-                onSave={async items => { const ok = await onAddBillTxs(items); if (ok) setShowBillForm(false); return ok; }}
-                onCancel={() => setShowBillForm(false)}
-              />
-            </div>
-          )}
-
-          {/* Lista de transações */}
-          {billTransactions.length > 0 && (
-            <div style={{ padding: "0 20px 4px" }}>
-              {[...billTransactions]
-                .sort((a, b) => a.date.localeCompare(b.date))
-                .map(tx => {
-                  const isIncome = tx.type === "INCOME";
-                  const cat = CATEGORIES[tx.category as CategoryKey];
-                  const dateLabel = tx.date.slice(5, 10).replace("-", "/");
-                  const isPending = pendingBillDelete?.id === tx.id;
-                  return (
-                    <div key={tx.id}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0", borderBottom: isPending ? "none" : "1px solid var(--line-2)", opacity: tx.isPaid ? 0.7 : 1 }}>
-                        <span style={{ fontSize: 11, fontWeight: 700, color: "var(--ink-3)", minWidth: 32 }}>{dateLabel}</span>
-                        {cat && <span style={{ width: 7, height: 7, borderRadius: "50%", background: cat.color, flex: "0 0 auto" }} />}
-                        <span style={{ flex: 1, fontSize: 12.5, fontWeight: 600, color: "var(--ink)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{tx.description}</span>
-                        {tx.installments && tx.installments > 1 && (
-                          <span style={{ fontSize: 10, color: "var(--ink-3)", fontWeight: 700, background: "var(--surface-2)", padding: "1px 5px", borderRadius: 4 }}>
-                            {tx.installmentIndex}/{tx.installments}
-                          </span>
-                        )}
-                        <span className="num" style={{ fontSize: 12.5, fontWeight: 700, color: isIncome ? "var(--pos)" : "var(--neg)", minWidth: 72, textAlign: "right" }}>
-                          {isIncome ? "+" : "−"}{formatBRL(Number(tx.amount))}
-                        </span>
-                        <div style={{ display: "flex", gap: 4 }}>
-                          {onTogglePaid && (
-                            <button onClick={() => onTogglePaid(tx.id, !tx.isPaid)} style={{
-                              padding: "3px 8px", fontSize: 10, fontWeight: 700, borderRadius: "var(--r-sm)", cursor: "pointer",
-                              border: `1px solid ${tx.isPaid ? "var(--pos)" : "var(--line)"}`,
-                              background: tx.isPaid ? "var(--pos-soft, #e6f4ea)" : "var(--surface)",
-                              color: tx.isPaid ? "var(--pos)" : "var(--ink-3)",
-                              whiteSpace: "nowrap",
-                            }}>
-                              {tx.isPaid ? "✓ Pago" : (isIncome ? "Receber" : "Pagar")}
-                            </button>
-                          )}
-                          {onDeleteBillTx && (
-                            <button onClick={() => setPendingBillDelete(isPending ? null : tx)}
-                              style={{ background: "none", border: "none", cursor: "pointer", color: isPending ? "var(--neg)" : "var(--ink-3)", padding: 2 }}>
-                              <OrcaIcon name="trash" size={12} />
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                      {isPending && (
-                        <div style={{ paddingBottom: 6, borderBottom: "1px solid var(--line-2)" }}>
-                          <DeleteEntryDialog
-                            description={tx.description}
-                            installments={tx.installments}
-                            onDeleteOne={async () => { setPendingBillDelete(null); await onDeleteBillTx!(tx.id); }}
-                            onDeleteAll={onDeleteBillTxGroup
-                              ? async () => {
-                                  setPendingBillDelete(null);
-                                  if (tx.groupId) await onDeleteBillTxGroup!(tx.groupId);
-                                  else await onDeleteBillTx!(tx.id);
-                                }
-                              : undefined}
-                            onCancel={() => setPendingBillDelete(null)}
-                          />
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-            </div>
-          )}
-
-          {/* Total da fatura */}
-          <div style={{ padding: "8px 20px 12px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <div>
-              <span style={{ fontSize: 12.5, fontWeight: 700 }}>
-                {billTransactions.length === 0 ? "Sem lançamentos neste mês" : `${billTransactions.length} lançamento${billTransactions.length !== 1 ? "s" : ""}`}
-              </span>
-              {billTransactions.some(t => !t.isPaid) && (
-                <span style={{ fontSize: 11, color: "var(--warn)", fontWeight: 600, marginLeft: 8 }}>
-                  · {billTransactions.filter(t => !t.isPaid).length} pendente{billTransactions.filter(t => !t.isPaid).length !== 1 ? "s" : ""}
-                </span>
+          {/* Accordion body */}
+          <div style={{ display: "grid", gridTemplateRows: openFatura ? "1fr" : "0fr", transition: "grid-template-rows .26s ease" }}>
+            <div style={{ overflow: "hidden", minHeight: 0 }}>
+              {/* Inline form */}
+              {showBillForm && onAddBillTxs && (
+                <div style={{ padding: "0 16px 8px" }}>
+                  <BillForm
+                    bank={bankId}
+                    cutoffDay={cutoffDay}
+                    dueDay={dueDay}
+                    month={month}
+                    year={year}
+                    onSave={async items => { const ok = await onAddBillTxs(items); if (ok) setShowBillForm(false); return ok; }}
+                    onCancel={() => setShowBillForm(false)}
+                  />
+                </div>
               )}
-            </div>
-            <div style={{ textAlign: "right" }}>
-              {netBill > 0 && <div className="num" style={{ fontSize: 14, fontWeight: 800, color: "var(--neg)" }}>−{formatBRL(netBill)}</div>}
-              {billTransactions.some(t => !t.isPaid) && (
-                <div className="num" style={{ fontSize: 11, color: "var(--ink-3)", fontWeight: 600 }}>
-                  total: {formatBRL(billTransactions.filter(t => t.type === "EXPENSE").reduce((s, t) => s + Number(t.amount), 0))}
+
+              {/* Lista de transações */}
+              {billTransactions.length > 0 && (
+                <div style={{ padding: "0 18px 4px" }}>
+                  {[...billTransactions]
+                    .sort((a, b) => a.date.localeCompare(b.date))
+                    .map(tx => {
+                      const isIncome = tx.type === "INCOME";
+                      const cat = CATEGORIES[tx.category as CategoryKey];
+                      const dateLabel = tx.date.slice(5, 10).replace("-", "/");
+                      const isPending = pendingBillDelete?.id === tx.id;
+                      return (
+                        <div key={tx.id}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0", borderBottom: isPending ? "none" : "1px solid var(--line-2)", opacity: tx.isPaid ? 0.7 : 1 }}>
+                            <span style={{ fontSize: 11, fontWeight: 700, color: "var(--ink-3)", minWidth: 32 }}>{dateLabel}</span>
+                            {cat && <span style={{ width: 7, height: 7, borderRadius: "50%", background: cat.color, flex: "0 0 auto" }} />}
+                            <span style={{ flex: 1, fontSize: 12.5, fontWeight: 600, color: "var(--ink)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{tx.description}</span>
+                            {tx.installments && tx.installments > 1 && (
+                              <span style={{ fontSize: 10, color: "var(--ink-3)", fontWeight: 700, background: "var(--surface-2)", padding: "1px 5px", borderRadius: 4 }}>
+                                {tx.installmentIndex}/{tx.installments}
+                              </span>
+                            )}
+                            <span className="num" style={{ fontSize: 12.5, fontWeight: 700, color: isIncome ? "var(--pos)" : "var(--neg)", minWidth: 72, textAlign: "right" }}>
+                              {isIncome ? "+" : "−"}{formatBRL(Number(tx.amount))}
+                            </span>
+                            <div style={{ display: "flex", gap: 4 }}>
+                              {onTogglePaid && (
+                                <button onClick={() => onTogglePaid(tx.id, !tx.isPaid)} style={{
+                                  padding: "3px 8px", fontSize: 10, fontWeight: 700, borderRadius: "var(--r-sm)", cursor: "pointer",
+                                  border: `1px solid ${tx.isPaid ? "var(--pos)" : "var(--line)"}`,
+                                  background: tx.isPaid ? "var(--pos-soft, #e6f4ea)" : "var(--surface)",
+                                  color: tx.isPaid ? "var(--pos)" : "var(--ink-3)",
+                                  whiteSpace: "nowrap",
+                                }}>
+                                  {tx.isPaid ? "✓ Pago" : (isIncome ? "Receber" : "Pagar")}
+                                </button>
+                              )}
+                              {onDeleteBillTx && (
+                                <button onClick={() => setPendingBillDelete(isPending ? null : tx)}
+                                  style={{ background: "none", border: "none", cursor: "pointer", color: isPending ? "var(--neg)" : "var(--ink-3)", padding: 2 }}>
+                                  <OrcaIcon name="trash" size={12} />
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                          {isPending && (
+                            <div style={{ paddingBottom: 6, borderBottom: "1px solid var(--line-2)" }}>
+                              <DeleteEntryDialog
+                                description={tx.description}
+                                installments={tx.installments}
+                                onDeleteOne={async () => { setPendingBillDelete(null); await onDeleteBillTx!(tx.id); }}
+                                onDeleteAll={onDeleteBillTxGroup
+                                  ? async () => {
+                                      setPendingBillDelete(null);
+                                      if (tx.groupId) await onDeleteBillTxGroup!(tx.groupId);
+                                      else await onDeleteBillTx!(tx.id);
+                                    }
+                                  : undefined}
+                                onCancel={() => setPendingBillDelete(null)}
+                              />
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
                 </div>
               )}
             </div>
@@ -1604,9 +1680,9 @@ function BankCard({
       )}
 
       {/* ── Footer: valor total (com todas as faturas) ── */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "13px 20px", background: "var(--surface-2)", borderTop: "1px solid var(--line-2)" }}>
-        <span style={{ fontWeight: 700, fontSize: 12, color: "var(--ink-3)" }}>Valor total</span>
-        <span className="num" style={{ fontWeight: 800, fontSize: 15, color: saldoTotal >= 0 ? "var(--ink-2)" : "var(--neg)" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "13px 18px", background: "var(--surface-2)", borderTop: "1px solid var(--line)" }}>
+        <span style={{ fontWeight: 800, fontSize: 13.5, color: "var(--ink-2)" }}>Valor total</span>
+        <span className="num" style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 17, letterSpacing: "-.02em", color: saldoTotal >= 0 ? "var(--ink-2)" : "var(--neg)" }}>
           {formatBRL(saldoTotal)}
         </span>
       </div>
@@ -2497,6 +2573,13 @@ export default function BancosPage() {
     if (!res.ok) await fetchAll(); // reverte se falhar
   }
 
+  async function toggleEntryPaid(id: string, isPaid: boolean) {
+    const res = await fetch(`/api/bank-entries/${id}`, {
+      method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ isPaid }),
+    });
+    if (!res.ok) await fetchAll();
+  }
+
   async function payAllBillTxs(bank: BankKey) {
     setBillTxs(prev => prev.map(t => t.bank === bank ? { ...t, isPaid: true } : t));
     await fetch(
@@ -2727,8 +2810,8 @@ export default function BancosPage() {
                   const bal = balances.find(b => b.bank === bankKey && b.month === month && b.year === year);
                   const bankFees = fees.filter(f => f.bank === bankKey);
                   const bankInvest = investments.filter(i => i.institution === bankKey).map(i => ({ id: i.id, name: i.name, value: Number(i.value) }));
-                  const bankEntradas = entries.filter(e => e.bank === bankKey && e.type === "INCOME").map(e => ({ id: e.id, description: e.description, amount: Number(e.amount), type: "INCOME" as const, groupId: e.groupId, installments: e.installments, category: e.category }));
-                  const bankSaidas   = entries.filter(e => e.bank === bankKey && e.type === "EXPENSE").map(e => ({ id: e.id, description: e.description, amount: Number(e.amount), type: "EXPENSE" as const, groupId: e.groupId, installments: e.installments, category: e.category }));
+                  const bankEntradas = entries.filter(e => e.bank === bankKey && e.type === "INCOME").map(e => ({ id: e.id, description: e.description, amount: Number(e.amount), type: "INCOME" as const, isPaid: e.isPaid, groupId: e.groupId, installments: e.installments, category: e.category }));
+                  const bankSaidas   = entries.filter(e => e.bank === bankKey && e.type === "EXPENSE").map(e => ({ id: e.id, description: e.description, amount: Number(e.amount), type: "EXPENSE" as const, isPaid: e.isPaid, groupId: e.groupId, installments: e.installments, category: e.category }));
                   const cfg = bankConfigs.find(c => c.bank === bankKey);
                   const bankBillTxs = billTransactions.filter(t => t.bank === bankKey);
                   return (
@@ -2757,6 +2840,7 @@ export default function BancosPage() {
                       onDeleteBillTxGroup={deleteBillTxGroup}
                       onDeleteEntryGroup={deleteEntryGroup}
                       onTogglePaid={togglePaid}
+                      onToggleEntryPaid={toggleEntryPaid}
                       onPayAllBillTxs={() => payAllBillTxs(bankKey)}
                       onDeleteAllBillTxs={() => deleteAllBillTxs(bankKey)}
                       month={month} year={year}
@@ -2776,8 +2860,8 @@ export default function BancosPage() {
                   const cb = customBanks.find(b => b.id === item.id)!;
                   const bal = customBalances.find(b => b.customBankId === cb.id && b.month === month && b.year === year);
                   const cbFees = customFees.filter(f => f.customBankId === cb.id);
-                  const cbEntradas = entries.filter(e => e.customBankId === cb.id && e.type === "INCOME").map(e => ({ id: e.id, description: e.description, amount: Number(e.amount), type: "INCOME" as const, groupId: e.groupId, installments: e.installments, category: e.category }));
-                  const cbSaidas   = entries.filter(e => e.customBankId === cb.id && e.type === "EXPENSE").map(e => ({ id: e.id, description: e.description, amount: Number(e.amount), type: "EXPENSE" as const, groupId: e.groupId, installments: e.installments, category: e.category }));
+                  const cbEntradas = entries.filter(e => e.customBankId === cb.id && e.type === "INCOME").map(e => ({ id: e.id, description: e.description, amount: Number(e.amount), type: "INCOME" as const, isPaid: e.isPaid, groupId: e.groupId, installments: e.installments, category: e.category }));
+                  const cbSaidas   = entries.filter(e => e.customBankId === cb.id && e.type === "EXPENSE").map(e => ({ id: e.id, description: e.description, amount: Number(e.amount), type: "EXPENSE" as const, isPaid: e.isPaid, groupId: e.groupId, installments: e.installments, category: e.category }));
                   return (
                     <BankCard
                       key={`${cb.id}-${month}-${year}`}
@@ -2800,6 +2884,7 @@ export default function BancosPage() {
                       onUpdateEntry={updateEntry}
                       onAddEntryBatch={items => addCustomEntryBatch(cb.id, items)}
                       onDeleteEntryGroup={deleteEntryGroup}
+                      onToggleEntryPaid={toggleEntryPaid}
                       month={month} year={year}
                       onConfigureBank={() => setConfiguringBank({
                         bankName: cb.name, bankShort: cb.short, bankColor: cb.color,

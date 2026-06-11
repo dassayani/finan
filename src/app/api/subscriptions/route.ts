@@ -3,6 +3,13 @@ import { getServerSession } from "next-auth";
 import { z } from "zod";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { BANKS } from "@/lib/constants";
+import type { BankKey } from "@/lib/constants";
+
+const BANK_KEYS = Object.keys(BANKS) as BankKey[];
+function toBankKey(s: string | null | undefined): BankKey | null {
+  return s && BANK_KEYS.includes(s as BankKey) ? (s as BankKey) : null;
+}
 
 const memberSchema = z.object({
   name: z.string().min(1),
@@ -18,6 +25,8 @@ const subSchema = z.object({
   account: z.string().optional(),
   period: z.enum(["mensal", "anual"]).optional(),
   startDate: z.string().optional().nullable(),
+  bank: z.string().nullable().optional(),
+  customBankId: z.string().nullable().optional(),
   members: z.array(memberSchema),
 }).refine(d => {
   const sum = d.members.reduce((a, m) => a + m.share, 0);
@@ -82,11 +91,13 @@ export async function POST(req: NextRequest) {
     const { members, ...data } = subSchema.parse(body);
     const now = new Date();
 
-    const { startDate, ...rest } = data;
+    const { startDate, bank: bankField, customBankId: customBankIdField, ...rest } = data;
     const sub = await prisma.subscription.create({
       data: {
         ...rest,
         startDate: startDate ? new Date(startDate) : null,
+        bank: toBankKey(bankField),
+        customBankId: customBankIdField ?? null,
         userId: session.user.id,
         members: {
           create: members.map(m => ({

@@ -5,8 +5,8 @@ import { OrcaIcon } from "@/components/ui/orca-icon";
 import { MonthPill } from "@/components/ui/month-pill";
 import { Modal } from "@/components/ui/modal";
 import { PayToggle } from "@/components/ui/pay-toggle";
-import { CATEGORIES, formatBRL } from "@/lib/constants";
-import type { CategoryKey } from "@/lib/constants";
+import { BANKS, CATEGORIES, categoriesFor, formatBRL } from "@/lib/constants";
+import type { BankKey, CategoryKey } from "@/lib/constants";
 
 // ─── Date helpers (local timezone, avoiding UTC day-shift) ───────────────────
 
@@ -37,7 +37,23 @@ interface Salary {
   netAmount: number;
   payDay: number | null;
   notes: string | null;
+  salaryBank: string | null;
+  salaryCustomBankId: string | null;
+  salaryBankSinceMonth: number | null;
+  salaryBankSinceYear: number | null;
   items: SalaryItem[];
+}
+
+interface CustomBank {
+  id: string;
+  name: string;
+}
+
+interface SalaryBankEntry {
+  id: string;
+  bank: string | null;
+  customBankId: string | null;
+  isPaid: boolean;
 }
 
 interface SalaryResponse {
@@ -45,6 +61,7 @@ interface SalaryResponse {
   monthSalary: Salary | null;
   effective: Salary | null;
   source: "month" | "prev" | "template" | null;
+  bankEntry: SalaryBankEntry | null;
 }
 
 interface Credit {
@@ -66,6 +83,8 @@ interface BonusEntry {
   baseAmount: number;
   netAmount: number;
   notes: string | null;
+  salaryBank: string | null;
+  salaryCustomBankId: string | null;
   items: SalaryItem[];
 }
 
@@ -113,26 +132,44 @@ function mergeWithDefaults(saved: SalaryItem[], defaults: SalaryItem[]): SalaryI
   });
 }
 
+const BANK_IDS = Object.keys(BANKS) as BankKey[];
+
+const MONTH_NAMES = ["Janeiro","Fevereiro","Março","Abril","Maio","Junho","Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"];
+const BANK_YEARS = Array.from({ length: 10 }, (_, i) => new Date().getFullYear() - i);
+
 function SalaryForm({
   initial,
+  bankEntry,
   month,
   year,
   isTemplate,
   onSave,
   onCancel,
   loading,
+  customBanks = [],
 }: {
   initial?: Salary | null;
+  bankEntry?: SalaryBankEntry | null;
   month: number;
   year: number;
   isTemplate: boolean;
   onSave: (data: Record<string, unknown>) => void;
   onCancel: () => void;
   loading: boolean;
+  customBanks?: CustomBank[];
 }) {
   const initItems = initial?.items ?? [];
   const savedP = initItems.filter(i => i.type === "PROVENTO");
   const savedD = initItems.filter(i => i.type === "DESCONTO");
+
+  // Bank: for template use Salary.salaryBank; for month use BankEntry bank (month-specific)
+  const initBankValue = isTemplate
+    ? (initial?.salaryCustomBankId ? `cst:${initial.salaryCustomBankId}` : initial?.salaryBank ? `std:${initial.salaryBank}` : "")
+    : (bankEntry?.customBankId ? `cst:${bankEntry.customBankId}` : bankEntry?.bank ? `std:${bankEntry.bank}` : "");
+
+  // Since date (template only) — from which month the bank is effective
+  const initSinceMonth = String(initial?.salaryBankSinceMonth ?? month);
+  const initSinceYear  = String(initial?.salaryBankSinceYear  ?? year);
 
   const [proventos, setProventos] = useState<SalaryItem[]>(
     savedP.length === 0 ? DEFAULT_PROVENTOS
@@ -146,6 +183,9 @@ function SalaryForm({
   );
   const [payDay, setPayDay] = useState(initial?.payDay ? String(initial.payDay) : "5");
   const [notes, setNotes] = useState(initial?.notes ?? "");
+  const [salaryBankValue, setSalaryBankValue] = useState(initBankValue);
+  const [sinceMonth, setSinceMonth] = useState(initSinceMonth);
+  const [sinceYear, setSinceYear] = useState(initSinceYear);
 
   const totalP = proventos.reduce((a, i) => a + (Number(i.amount) || 0), 0);
   const totalD = descontos.reduce((a, i) => a + (Number(i.amount) || 0), 0);
@@ -171,6 +211,8 @@ function SalaryForm({
       ...proventos.map((it, i) => ({ ...it, amount: Number(it.amount) || 0, order: i })),
       ...descontos.map((it, i) => ({ ...it, amount: Number(it.amount) || 0, order: i })),
     ];
+    const salaryBank = salaryBankValue.startsWith("std:") ? salaryBankValue.slice(4) : null;
+    const salaryCustomBankId = salaryBankValue.startsWith("cst:") ? salaryBankValue.slice(4) : null;
     onSave({
       month: isTemplate ? 0 : month,
       year: isTemplate ? 0 : year,
@@ -178,6 +220,12 @@ function SalaryForm({
       netAmount: liquido,
       payDay: payDay ? Number(payDay) : null,
       notes: notes || null,
+      salaryBank,
+      salaryCustomBankId,
+      ...(isTemplate && salaryBankValue ? {
+        salaryBankSinceMonth: Number(sinceMonth) || null,
+        salaryBankSinceYear: Number(sinceYear) || null,
+      } : {}),
       items,
     });
   }
@@ -263,6 +311,37 @@ function SalaryForm({
         </div>
       </div>
 
+      {/* Banco de recebimento — template: com data de início; mês: override pontual */}
+      <div className="field" style={{ marginBottom: salaryBankValue ? 8 : 16 }}>
+        <label>{isTemplate ? "Banco de recebimento padrão" : "Banco de recebimento (este mês)"}</label>
+        <select className="orça-input" value={salaryBankValue} onChange={e => setSalaryBankValue(e.target.value)}>
+          <option value="">{isTemplate ? "Sem banco configurado" : "Sem banco (não lançar no extrato)"}</option>
+          {BANK_IDS.map(k => <option key={k} value={`std:${k}`}>{BANKS[k].name}</option>)}
+          {customBanks.length > 0 && (
+            <optgroup label="Bancos personalizados">
+              {customBanks.map(cb => <option key={cb.id} value={`cst:${cb.id}`}>{cb.name}</option>)}
+            </optgroup>
+          )}
+        </select>
+      </div>
+
+      {isTemplate && salaryBankValue && (
+        <div className="field-row-2" style={{ marginBottom: 16 }}>
+          <div className="field">
+            <label style={{ fontSize: 11.5, color: "var(--ink-3)" }}>Recebimento neste banco desde</label>
+            <select className="orça-input" value={sinceMonth} onChange={e => setSinceMonth(e.target.value)}>
+              {MONTH_NAMES.map((m, i) => <option key={i+1} value={String(i+1)}>{m}</option>)}
+            </select>
+          </div>
+          <div className="field">
+            <label style={{ fontSize: 11.5, color: "var(--ink-3)" }}>Ano</label>
+            <select className="orça-input" value={sinceYear} onChange={e => setSinceYear(e.target.value)}>
+              {BANK_YEARS.map(y => <option key={y} value={String(y)}>{y}</option>)}
+            </select>
+          </div>
+        </div>
+      )}
+
       <div style={{ display: "flex", gap: 10 }}>
         <button className="btn btn-ghost" style={{ flex: 1 }} onClick={onCancel}>Cancelar</button>
         <button className="btn btn-primary" style={{ flex: 1 }} disabled={loading} onClick={handleSave}>
@@ -275,7 +354,7 @@ function SalaryForm({
 
 // ─── Bonus Form ──────────────────────────────────────────────────────────────
 
-function BonusForm({ bonusType: initialType, year, month, initial, onSave, onCancel, loading }: {
+function BonusForm({ bonusType: initialType, year, month, initial, onSave, onCancel, loading, customBanks = [] }: {
   bonusType: BonusType | null;
   year: number;
   month: number;
@@ -283,6 +362,7 @@ function BonusForm({ bonusType: initialType, year, month, initial, onSave, onCan
   onSave: (d: Record<string, unknown>) => void;
   onCancel: () => void;
   loading: boolean;
+  customBanks?: CustomBank[];
 }) {
   const [bonusType, setBonusType] = useState<BonusType>(initialType ?? "plr");
   const isEditing = !!initial;
@@ -292,10 +372,15 @@ function BonusForm({ bonusType: initialType, year, month, initial, onSave, onCan
   const savedP = initItems.filter(i => i.type === "PROVENTO");
   const savedD = initItems.filter(i => i.type === "DESCONTO");
 
+  const initBankValue = initial?.salaryCustomBankId
+    ? `cst:${initial.salaryCustomBankId}`
+    : initial?.salaryBank ? `std:${initial.salaryBank}` : "";
+
   const [proventos, setProventos] = useState<SalaryItem[]>(savedP.length > 0 ? savedP : defaults.proventos.map(i => ({ ...i })));
   const [descontos, setDescontos] = useState<SalaryItem[]>(savedD.length > 0 ? savedD : defaults.descontos.map(i => ({ ...i })));
   const [payDate, setPayDate]     = useState(`${year}-${String(month).padStart(2, "0")}-01`);
   const [notes, setNotes]         = useState(initial?.notes ?? "");
+  const [bankValue, setBankValue] = useState(initBankValue);
 
   function handleTypeChange(t: BonusType) {
     if (isEditing) return;
@@ -327,7 +412,9 @@ function BonusForm({ bonusType: initialType, year, month, initial, onSave, onCan
       ...proventos.map((it, i) => ({ ...it, amount: Number(it.amount) || 0, order: i })),
       ...descontos.map((it, i) => ({ ...it, amount: Number(it.amount) || 0, order: i })),
     ];
-    onSave({ type: bonusType, year, payDate, baseAmount: totalP, netAmount: Math.max(0, liquido), notes: notes || null, items });
+    const bank = bankValue.startsWith("std:") ? bankValue.slice(4) : null;
+    const customBankId = bankValue.startsWith("cst:") ? bankValue.slice(4) : null;
+    onSave({ type: bonusType, year, payDate, baseAmount: totalP, netAmount: Math.max(0, liquido), notes: notes || null, bank, customBankId, items });
   }
 
   return (
@@ -398,6 +485,19 @@ function BonusForm({ bonusType: initialType, year, month, initial, onSave, onCan
       <div className="field" style={{ marginBottom: 16 }}>
         <label>Observações</label>
         <input className="orça-input" value={notes} onChange={e => setNotes(e.target.value)} placeholder="Opcional..." />
+      </div>
+
+      <div className="field" style={{ marginBottom: 16 }}>
+        <label>Banco de recebimento</label>
+        <select className="orça-input" value={bankValue} onChange={e => setBankValue(e.target.value)}>
+          <option value="">Sem banco (não lançar no extrato)</option>
+          {BANK_IDS.map(k => <option key={k} value={`std:${k}`}>{BANKS[k].name}</option>)}
+          {customBanks.length > 0 && (
+            <optgroup label="Bancos personalizados">
+              {customBanks.map(cb => <option key={cb.id} value={`cst:${cb.id}`}>{cb.name}</option>)}
+            </optgroup>
+          )}
+        </select>
       </div>
 
       <div style={{ display: "flex", gap: 10 }}>
@@ -616,16 +716,18 @@ function Holerite({
 
 // ─── Other Credits Form ───────────────────────────────────────────────────────
 
-function CreditForm({ initial, onSave, onCancel, loading }: { initial?: Partial<Credit>; onSave: (d: Record<string, unknown>) => void; onCancel: () => void; loading: boolean; }) {
+function CreditForm({ initial, onSave, onCancel, loading, customBanks = [] }: { initial?: Partial<Credit>; onSave: (d: Record<string, unknown>) => void; onCancel: () => void; loading: boolean; customBanks?: CustomBank[]; }) {
+  const initBankValue = initial?.bank ? `std:${initial.bank}` : "";
   const [form, setForm] = useState({
     description: initial?.description ?? "",
     amount: initial?.amount ? String(initial.amount) : "",
-    category: initial?.category ?? "reemb",
+    category: initial?.category ?? "salario",
     date: initial?.date ? formatLocalDate(parseLocalDate(initial.date.split("T")[0])) : formatLocalDate(new Date()),
     notes: initial?.notes ?? "",
     isRecurring: false,
     endDate: "",
   });
+  const [bankValue, setBankValue] = useState(initBankValue);
   const set = (k: string, v: string | boolean) => setForm(f => ({ ...f, [k]: v }));
 
   function handleSave() {
@@ -639,6 +741,7 @@ function CreditForm({ initial, onSave, onCancel, loading }: { initial?: Partial<
       isRecurring: form.isRecurring,
       endDate: form.isRecurring && form.endDate ? form.endDate : null,
       date: form.date,
+      bankValue,
     };
     onSave(base);
   }
@@ -675,12 +778,24 @@ function CreditForm({ initial, onSave, onCancel, loading }: { initial?: Partial<
 
       <div className="field"><label>Categoria</label>
         <select className="orça-input" value={form.category} onChange={e => set("category", e.target.value)}>
-          {(Object.entries(CATEGORIES) as [CategoryKey, typeof CATEGORIES[CategoryKey]][]).map(([k, c]) => (
+          {categoriesFor('income').map(([k, c]) => (
             <option key={k} value={k}>{c.label}</option>
           ))}
         </select>
       </div>
       <div className="field"><label>Observações</label><input className="orça-input" value={form.notes} onChange={e => set("notes", e.target.value)} placeholder="Opcional..." /></div>
+      <div className="field">
+        <label>Banco de recebimento</label>
+        <select className="orça-input" value={bankValue} onChange={e => setBankValue(e.target.value)}>
+          <option value="">Sem banco (não lançar no extrato)</option>
+          {BANK_IDS.map(k => <option key={k} value={`std:${k}`}>{BANKS[k].name}</option>)}
+          {customBanks.length > 0 && (
+            <optgroup label="Bancos personalizados">
+              {customBanks.map(cb => <option key={cb.id} value={`cst:${cb.id}`}>{cb.name}</option>)}
+            </optgroup>
+          )}
+        </select>
+      </div>
       <div style={{ display: "flex", gap: 10 }}>
         <button className="btn btn-ghost" style={{ flex: 1 }} onClick={onCancel}>Cancelar</button>
         <button className="btn btn-primary" style={{ flex: 1 }} disabled={loading || !form.description || !form.amount} onClick={handleSave}>
@@ -712,6 +827,7 @@ export default function CreditosPage() {
   const [showSalaryMonth, setShowSalaryMonth] = useState(false);
   const [showSalaryTemplate, setShowSalaryTemplate] = useState(false);
   const [savingSalary, setSavingSalary] = useState(false);
+  const [customBanks, setCustomBanks] = useState<CustomBank[]>([]);
 
   // Credits state
   const [credits, setCredits] = useState<Credit[]>([]);
@@ -765,23 +881,32 @@ export default function CreditosPage() {
     fetchBonus();
   }, [fetchSalary, fetchCredits, fetchBonus]);
 
+  useEffect(() => {
+    fetch("/api/custom-banks").then(r => r.ok ? r.json() : []).then(d => setCustomBanks(Array.isArray(d) ? d : [])).catch(() => {});
+  }, []);
+
   async function handleSaveSalary(data: Record<string, unknown>) {
     setSavingSalary(true);
     try {
-      await fetch("/api/salary", {
+      const res = await fetch("/api/salary", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data),
       });
+      if (!res.ok) { alert("Erro ao salvar salário — tente novamente"); return; }
 
-      // If saving the template, also auto-confirm the current month so the
-      // INCOME transaction is created immediately — no extra click needed
+      // If saving the template and no salary transaction exists for the current
+      // month yet, auto-confirm so the INCOME entry is created immediately.
+      // Skip if a transaction already exists — preserves the user's paid status.
       if (data.month === 0) {
-        await fetch("/api/salary", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ...data, month, year }),
-        });
+        const hasSalaryTx = credits.some(c => c.groupId?.startsWith("salary-"));
+        if (!hasSalaryTx) {
+          await fetch("/api/salary", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ ...data, month, year }),
+          });
+        }
       }
 
       setShowSalaryMonth(false);
@@ -817,14 +942,37 @@ export default function CreditosPage() {
   async function handleSaveCredit(data: Record<string, unknown>) {
     setSavingCredit(true);
     try {
+      const bv = (data.bankValue as string) ?? "";
+      const bank = bv.startsWith("std:") ? bv.slice(4) : null;
+      const customBankId = bv.startsWith("cst:") ? bv.slice(4) : null;
+      const hasBank = !!(bank || customBankId);
+
+      async function createBankEntry(txId: string, date: Date, amount: number) {
+        await fetch("/api/bank-entries", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            bank: bank || null, customBankId: customBankId || null,
+            month: date.getMonth() + 1, year: date.getFullYear(),
+            description: data.description, amount,
+            type: "INCOME", category: data.category || null,
+            groupId: `credit-entry-${txId}`,
+          }),
+        });
+      }
+
       if (editCredit) {
         await fetch(`/api/transactions/${editCredit.id}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ description: data.description, amount: data.amount, category: data.category, date: data.date, notes: data.notes }),
+          body: JSON.stringify({ description: data.description, amount: data.amount, category: data.category, date: data.date, notes: data.notes, bank: bank || null }),
         });
+        // Replace BankEntry: delete old (if any), create new if bank selected
+        await fetch(`/api/bank-entries?groupId=credit-entry-${editCredit.id}`, { method: "DELETE" });
+        if (hasBank) {
+          await createBankEntry(editCredit.id, parseLocalDate(data.date as string), Number(data.amount));
+        }
       } else if (data.isRecurring) {
-        // Create one transaction per month from startDate to endDate
         const startDate = parseLocalDate(data.date as string);
         const endDate = data.endDate ? parseLocalDate(data.endDate as string) : new Date(startDate.getFullYear(), startDate.getMonth() + 23, startDate.getDate());
         const groupId = `recur-${Date.now()}`;
@@ -836,28 +984,31 @@ export default function CreditosPage() {
           d = new Date(d.getFullYear(), d.getMonth() + 1, d.getDate());
         }
 
-        await Promise.all(dates.map((dt, i) =>
+        const txResponses = await Promise.all(dates.map((dt, i) =>
           fetch("/api/transactions", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              description: data.description,
-              amount: data.amount,
-              type: "INCOME",
-              category: data.category,
-              date: formatLocalDate(dt),
-              notes: data.notes,
-              isPaid: i === 0,
-              groupId,
-            }),
+            body: JSON.stringify({ description: data.description, amount: data.amount, type: "INCOME", category: data.category, date: formatLocalDate(dt), notes: data.notes, isPaid: i === 0, groupId, bank: bank || null }),
           })
         ));
+
+        if (hasBank) {
+          await Promise.all(txResponses.map(async (res, i) => {
+            if (!res.ok) return;
+            const tx = await res.json();
+            await createBankEntry(tx.id, dates[i], Number(data.amount));
+          }));
+        }
       } else {
-        await fetch("/api/transactions", {
+        const res = await fetch("/api/transactions", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ...data, isRecurring: undefined, endDate: undefined }),
+          body: JSON.stringify({ ...data, bankValue: undefined, isRecurring: undefined, endDate: undefined, bank: bank || null }),
         });
+        if (hasBank && res.ok) {
+          const tx = await res.json();
+          await createBankEntry(tx.id, parseLocalDate(data.date as string), Number(data.amount));
+        }
       }
       setEditCredit(null); setShowNewReceita(null); fetchCredits();
     } finally { setSavingCredit(false); }
@@ -865,7 +1016,10 @@ export default function CreditosPage() {
 
   async function handleDeleteCredit(id: string, desc: string) {
     if (!confirm(`Excluir "${desc}"?`)) return;
-    await fetch(`/api/transactions/${id}`, { method: "DELETE" });
+    await Promise.all([
+      fetch(`/api/transactions/${id}`, { method: "DELETE" }),
+      fetch(`/api/bank-entries?groupId=credit-entry-${id}`, { method: "DELETE" }),
+    ]);
     fetchCredits();
   }
 
@@ -914,7 +1068,7 @@ export default function CreditosPage() {
 
   const salaryNet    = salaryData?.effective ? Number(salaryData.effective.netAmount) : 0;
   const bonusTotal   = (bonusPlr ? Number(bonusPlr.netAmount) : 0) + (bonusDecimo ? Number(bonusDecimo.netAmount) : 0);
-  const otherCredits = credits.filter(c => !c.groupId?.startsWith("salary-") && !c.groupId?.startsWith("bonus-") && c.bank === null);
+  const otherCredits = credits.filter(c => !c.groupId?.startsWith("salary-") && !c.groupId?.startsWith("bonus-"));
   const othersTotal  = otherCredits.reduce((a, c) => a + Number(c.amount), 0);
   const grandTotal   = salaryNet + bonusTotal + othersTotal;
 
@@ -938,8 +1092,10 @@ export default function CreditosPage() {
       <Modal open={showSalaryMonth} onClose={() => setShowSalaryMonth(false)} title={`Editar salário — ${monthCap}`} width={580}>
         <SalaryForm
           initial={salaryData?.monthSalary ?? salaryData?.effective}
+          bankEntry={salaryData?.bankEntry}
           month={month} year={year} isTemplate={false}
           onSave={handleSaveSalary} onCancel={() => setShowSalaryMonth(false)} loading={savingSalary}
+          customBanks={customBanks}
         />
       </Modal>
       <Modal open={showSalaryTemplate} onClose={() => setShowSalaryTemplate(false)} title="Editar modelo base de salário" width={580}>
@@ -947,6 +1103,7 @@ export default function CreditosPage() {
           initial={salaryData?.template}
           month={0} year={0} isTemplate={true}
           onSave={handleSaveSalary} onCancel={() => setShowSalaryTemplate(false)} loading={savingSalary}
+          customBanks={customBanks}
         />
       </Modal>
 
@@ -957,6 +1114,7 @@ export default function CreditosPage() {
           month={month} year={year} isTemplate={!salaryData?.template}
           onSave={async (data) => { await handleSaveSalary(data); setShowNewReceita(null); }}
           onCancel={() => setShowNewReceita(null)} loading={savingSalary}
+          customBanks={customBanks}
         />
       </Modal>
 
@@ -975,6 +1133,7 @@ export default function CreditosPage() {
             onSave={handleSaveBonus}
             onCancel={() => setShowBonusForm(null)}
             loading={savingBonus}
+            customBanks={customBanks}
           />
         )}
       </Modal>
@@ -989,12 +1148,13 @@ export default function CreditosPage() {
           onSave={handleSaveCredit}
           onCancel={() => setShowNewReceita(null)}
           loading={savingCredit}
+          customBanks={customBanks}
         />
       </Modal>
 
       {/* Edit credit modal */}
       <Modal open={!!editCredit} onClose={() => setEditCredit(null)} title="Editar receita">
-        {editCredit && <CreditForm initial={editCredit} onSave={handleSaveCredit} onCancel={() => setEditCredit(null)} loading={savingCredit} />}
+        {editCredit && <CreditForm initial={editCredit} onSave={handleSaveCredit} onCancel={() => setEditCredit(null)} loading={savingCredit} customBanks={customBanks} />}
       </Modal>
 
       {/* Topbar */}

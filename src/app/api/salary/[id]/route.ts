@@ -9,10 +9,21 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
 
   const { id } = await params;
 
-  // Prevent deleting the template if it's the only salary
   const salary = await prisma.salary.findFirst({ where: { id, userId: session.user.id } });
   if (!salary) return NextResponse.json({ error: "Não encontrado" }, { status: 404 });
 
-  await prisma.salary.delete({ where: { id } });
+  await prisma.$transaction([
+    prisma.salary.delete({ where: { id } }),
+    // Remove the auto-created bank entry for this month (only exists for non-template salaries)
+    ...(salary.month > 0
+      ? [prisma.bankEntry.deleteMany({
+          where: {
+            userId: session.user.id,
+            groupId: `salary-entry-${session.user.id}-${salary.month}-${salary.year}`,
+          },
+        })]
+      : []),
+  ]);
+
   return new NextResponse(null, { status: 204 });
 }

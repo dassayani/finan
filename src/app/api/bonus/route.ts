@@ -3,7 +3,14 @@ import { getServerSession } from "next-auth";
 import { z } from "zod";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { BANKS } from "@/lib/constants";
+import type { BankKey } from "@/lib/constants";
 import type { Prisma } from "@prisma/client";
+
+const BANK_KEYS = Object.keys(BANKS) as BankKey[];
+function toBankKey(s: string | null | undefined): BankKey | null {
+  return s && BANK_KEYS.includes(s as BankKey) ? (s as BankKey) : null;
+}
 
 // Encode: type + payMonth into a unique month key stored in Salary.month
 // PLR base = 1400  → PLR June = 1406, PLR December = 1412
@@ -29,6 +36,8 @@ const bonusSchema = z.object({
   baseAmount: z.number(),
   netAmount: z.number(),
   notes: z.string().optional().nullable(),
+  bank: z.string().nullable().optional(),
+  customBankId: z.string().nullable().optional(),
   items: z.array(itemSchema),
 });
 
@@ -67,12 +76,15 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json();
-    const { type, items, payDate, ...data } = bonusSchema.parse(body);
+    const { type, items, payDate, bank: bankField, customBankId: customBankIdField, ...data } = bonusSchema.parse(body);
 
-    const payMonth = new Date(payDate).getUTCMonth() + 1;
-    const salaryMonth = encodeMonth(type, payMonth);
-    const label   = type === "plr" ? "PLR" : "Décimo Terceiro";
-    const groupId = `bonus-${type}-${data.year}-${payMonth}-${session.user.id}`;
+    const bankKey      = toBankKey(bankField);
+    const customBankId = customBankIdField ?? null;
+    const payMonth     = new Date(payDate).getUTCMonth() + 1;
+    const salaryMonth  = encodeMonth(type, payMonth);
+    const label        = type === "plr" ? "PLR" : "Décimo Terceiro";
+    const groupId      = `bonus-${type}-${data.year}-${payMonth}-${session.user.id}`;
+    const entryGroupId = `bonus-entry-${type}-${data.year}-${payMonth}-${session.user.id}`;
 
     await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       await tx.salary.upsert({
@@ -81,11 +93,13 @@ export async function POST(req: NextRequest) {
           month: salaryMonth, year: data.year, userId: session.user.id,
           baseAmount: data.baseAmount, netAmount: data.netAmount,
           payDay: payMonth, notes: data.notes ?? null,
+          salaryBank: bankKey, salaryCustomBankId: customBankId,
           items: { create: items.map((it, i) => ({ ...it, order: it.order ?? i })) },
         },
         update: {
           baseAmount: data.baseAmount, netAmount: data.netAmount,
           payDay: payMonth, notes: data.notes ?? null,
+          salaryBank: bankKey, salaryCustomBankId: customBankId,
           items: { deleteMany: {}, create: items.map((it, i) => ({ ...it, order: it.order ?? i })) },
         },
         include: { items: { orderBy: { order: "asc" } } },
@@ -100,17 +114,38 @@ export async function POST(req: NextRequest) {
         if (existing) {
           await tx.transaction.update({
             where: { id: existing.id },
-            data: { amount: data.netAmount, date: txDate, notes: data.notes ?? null },
+            data: { amount: data.netAmount, date: txDate, notes: data.notes ?? null, bank: bankKey },
           });
         } else {
           await tx.transaction.create({
             data: {
               description: label, amount: data.netAmount,
               type: "INCOME", category: "trab",
-              date: txDate, notes: data.notes ?? null,
+              bank: bankKey, date: txDate, notes: data.notes ?? null,
               isPaid: false, groupId, userId: session.user.id,
             },
           });
+        }
+
+        // Upsert BankEntry for this bonus
+        if (bankKey || customBankId) {
+          const existingEntry = await tx.bankEntry.findFirst({
+            where: { userId: session.user.id, groupId: entryGroupId },
+          });
+          const preservedIsPaid = existingEntry?.isPaid ?? false;
+          await tx.bankEntry.deleteMany({ where: { userId: session.user.id, groupId: entryGroupId } });
+          await tx.bankEntry.create({
+            data: {
+              userId: session.user.id, bank: bankKey, customBankId,
+              month: payMonth, year: data.year,
+              description: label, amount: data.netAmount,
+              type: "INCOME", category: "trab",
+              groupId: entryGroupId, isPaid: preservedIsPaid,
+            },
+          });
+        } else {
+          // Bank removed — delete BankEntry if it exists
+          await tx.bankEntry.deleteMany({ where: { userId: session.user.id, groupId: entryGroupId } });
         }
       }
     });
@@ -135,15 +170,13 @@ export async function DELETE(req: NextRequest) {
     return NextResponse.json({ error: "type, year e payMonth são obrigatórios" }, { status: 400 });
   }
 
-  const salaryMonth = encodeMonth(type, payMonth);
-  const groupId     = `bonus-${type}-${year}-${payMonth}-${session.user.id}`;
+  const salaryMonth  = encodeMonth(type, payMonth);
+  const groupId      = `bonus-${type}-${year}-${payMonth}-${session.user.id}`;
+  const entryGroupId = `bonus-entry-${type}-${year}-${payMonth}-${session.user.id}`;
 
-  await prisma.salary.deleteMany({
-    where: { userId: session.user.id, month: salaryMonth, year },
-  });
-  await prisma.transaction.deleteMany({
-    where: { userId: session.user.id, groupId },
-  });
+  await prisma.salary.deleteMany({ where: { userId: session.user.id, month: salaryMonth, year } });
+  await prisma.transaction.deleteMany({ where: { userId: session.user.id, groupId } });
+  await prisma.bankEntry.deleteMany({ where: { userId: session.user.id, groupId: entryGroupId } });
 
   return new NextResponse(null, { status: 204 });
 }

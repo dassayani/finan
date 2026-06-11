@@ -162,8 +162,13 @@ Fontes:      --font-display (Space Grotesk)  --font-body (Plus Jakarta Sans)
 
 **Bancos customizados** — modelo `CustomBank` no schema, APIs em `/api/custom-banks`. Não confundir com o enum `BankKey`. No formulário de despesas, o seletor usa prefixo: `std:{bankKey}` para bancos fixos, `cst:{customBankId}` para bancos customizados.
 
-**Categorias** — 14 chaves em `CATEGORIES` (`src/lib/constants.ts`):
-`casa` `alim` `imprev` `transp` `saude` `pet` `assin` `lazer` `compras` `trab` `viagem` `reserva` `tarifas` `reemb`
+**Categorias** — 20 chaves em `CATEGORIES` (`src/lib/constants.ts`), com campo `applicableTo: 'income' | 'expense' | 'both'`:
+
+- **Despesas** (`applicableTo: 'expense'`): `casa` `alim` `imprev` `transp` `saude` `pet` `assin` `lazer` `compras` `trab` `viagem` `reserva` `tarifas`
+- **Ambos** (`applicableTo: 'both'`): `reemb`
+- **Receitas** (`applicableTo: 'income'`): `salario` `freelance` `aluguel_rec` `dividendos` `presente` `outros_rec`
+
+Use `categoriesFor('income')` ou `categoriesFor('expense')` para obter a lista filtrada. Os seletores de categoria na tela de Créditos filtram por `income`, na tela de Débito filtram por `expense`.
 
 ## Formatação e utilitários
 

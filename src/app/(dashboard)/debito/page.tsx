@@ -5,7 +5,7 @@ import { OrcaIcon } from "@/components/ui/orca-icon";
 import { MonthPill } from "@/components/ui/month-pill";
 import { Modal } from "@/components/ui/modal";
 import { BankBadge } from "@/components/ui/bank-badge";
-import { BANKS, CATEGORIES, formatBRL } from "@/lib/constants";
+import { BANKS, CATEGORIES, categoriesFor, formatBRL } from "@/lib/constants";
 import type { BankKey, CategoryKey } from "@/lib/constants";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -137,7 +137,7 @@ function ExpenseForm({
       <div className="field">
         <label>Categoria</label>
         <select className="orça-input" value={selectedCat} onChange={e => setCat(e.target.value as CategoryKey)}>
-          {(Object.entries(CATEGORIES) as [CategoryKey, typeof CATEGORIES[CategoryKey]][]).map(([k, c]) => (
+          {categoriesFor('expense').map(([k, c]) => (
             <option key={k} value={k}>{c.label}</option>
           ))}
         </select>

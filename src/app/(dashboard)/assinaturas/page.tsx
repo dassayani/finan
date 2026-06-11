@@ -4,9 +4,14 @@ import { useCallback, useEffect, useState } from "react";
 import { OrcaIcon } from "@/components/ui/orca-icon";
 import { MonthPill } from "@/components/ui/month-pill";
 import { Modal } from "@/components/ui/modal";
-import { formatBRL } from "@/lib/constants";
+import { formatBRL, BANKS } from "@/lib/constants";
+import type { BankKey } from "@/lib/constants";
+
+const BANK_IDS = Object.keys(BANKS) as BankKey[];
 
 const ICONS = ["repeat","music","tv","play","headphones","star","globe","book","cloud","phone","game","wifi"] as const;
+
+interface CustomBank { id: string; name: string; }
 
 function parseLocalDate(s: string) {
   const [y, m, d] = s.split("-").map(Number);
@@ -20,7 +25,7 @@ type Period = "mensal" | "anual";
 
 interface Payment { month: number; year: number; paidAt: string; }
 interface Member { id: string; name: string; share: number; isOwner: boolean; paidAt: string | null; paidCount: number; payments?: Payment[]; }
-interface Sub { id: string; name: string; brand: string; icon: string; total: number; account: string; period: Period; startDate: string | null; members: Member[]; }
+interface Sub { id: string; name: string; brand: string; icon: string; total: number; account: string; period: Period; startDate: string | null; bank: string | null; customBankId: string | null; members: Member[]; }
 
 function monthsElapsed(startDate: string | null): number {
   const start = startDate ? new Date(startDate) : new Date(new Date().getFullYear(), 0, 1);
@@ -158,7 +163,7 @@ function SubCard({ s, onEdit, onDelete, onToggleMember, onMemberHistory, onPayAl
 }
 
 // ─── SubForm ──────────────────────────────────────────────────────────────────
-function SubForm({ initial, onSave, onCancel, loading }: { initial?: Partial<Sub>; onSave: (d: Record<string, unknown>) => void; onCancel: () => void; loading: boolean; }) {
+function SubForm({ initial, onSave, onCancel, loading, customBanks = [] }: { initial?: Partial<Sub>; onSave: (d: Record<string, unknown>) => void; onCancel: () => void; loading: boolean; customBanks?: CustomBank[]; }) {
   const [name,      setName]      = useState(initial?.name      ?? "");
   const [brand,     setBrand]     = useState(initial?.brand     ?? "#6366f1");
   const [icon,      setIcon]      = useState(initial?.icon      ?? "repeat");
@@ -168,6 +173,8 @@ function SubForm({ initial, onSave, onCancel, loading }: { initial?: Partial<Sub
   const [startDate, setStartDate] = useState(
     initial?.startDate ? formatLocalDate(parseLocalDate(initial.startDate.split("T")[0])) : ""
   );
+  const initBankValue = initial?.customBankId ? `cst:${initial.customBankId}` : initial?.bank ? `std:${initial.bank}` : "";
+  const [bankValue, setBankValue] = useState(initBankValue);
 
   // Owner (me) — separate from other members so the checkbox can toggle it independently
   const initialOwner = initial?.members?.find(m => m.isOwner);
@@ -300,10 +307,27 @@ function SubForm({ initial, onSave, onCancel, loading }: { initial?: Partial<Sub
         )}
       </div>
 
+      <div className="field" style={{ marginBottom: 4 }}>
+        <label>Banco de pagamento <span style={{ fontWeight: 400, color: "var(--ink-3)" }}>(opcional)</span></label>
+        <select className="orça-input" value={bankValue} onChange={e => setBankValue(e.target.value)}>
+          <option value="">Sem banco (não lançar no extrato)</option>
+          {BANK_IDS.map(k => <option key={k} value={`std:${k}`}>{BANKS[k].name}</option>)}
+          {customBanks.length > 0 && (
+            <optgroup label="Bancos personalizados">
+              {customBanks.map(cb => <option key={cb.id} value={`cst:${cb.id}`}>{cb.name}</option>)}
+            </optgroup>
+          )}
+        </select>
+      </div>
+
       <div style={{ display: "flex", gap: 10, paddingTop: 4 }}>
         <button className="btn btn-ghost" style={{ flex: 1 }} onClick={onCancel}>Cancelar</button>
         <button className="btn btn-primary" style={{ flex: 1 }} disabled={loading || !name || !total || !sharesOk || !hasMembers}
-          onClick={() => onSave({ name, brand, icon, total: parseFloat(total), account, period, startDate: startDate || null, members: buildMembers() })}>
+          onClick={() => {
+            const bank = bankValue.startsWith("std:") ? bankValue.slice(4) : null;
+            const customBankId = bankValue.startsWith("cst:") ? bankValue.slice(4) : null;
+            onSave({ name, brand, icon, total: parseFloat(total), account, period, startDate: startDate || null, bank, customBankId, members: buildMembers() });
+          }}>
           {loading ? "Salvando..." : <><OrcaIcon name="check" size={15} />Salvar</>}
         </button>
       </div>
@@ -350,6 +374,8 @@ export default function AssinaturasPage() {
   const [showNew,       setShowNew]       = useState(false);
   const [deleteTarget,  setDeleteTarget]  = useState<{ id: string; name: string } | null>(null);
   const [historyTarget, setHistoryTarget] = useState<{ subName: string; member: Member } | null>(null);
+  const [payingDebt,    setPayingDebt]    = useState<string | null>(null);
+  const [customBanks,   setCustomBanks]   = useState<CustomBank[]>([]);
 
   const fetchSubs = useCallback(async () => {
     setLoading(true);
@@ -362,6 +388,9 @@ export default function AssinaturasPage() {
   }, [month, year]);
 
   useEffect(() => { fetchSubs(); }, [fetchSubs]);
+  useEffect(() => {
+    fetch("/api/custom-banks").then(r => r.ok ? r.json() : []).then(d => setCustomBanks(Array.isArray(d) ? d : [])).catch(() => {});
+  }, []);
 
   async function handleSave(data: Record<string, unknown>) {
     setSaving(true);
@@ -420,6 +449,50 @@ export default function AssinaturasPage() {
     fetchSubs();
   }
 
+  async function handlePayDebt(subId: string, memberId: string, period: Period, startDate: string | null, payments: Payment[], elapsed: number) {
+    const key = `${subId}-${memberId}`;
+    setPayingDebt(key);
+    try {
+      const paidSet = new Set(payments.map(p => `${p.year}-${p.month}`));
+      const missing: { month: number; year: number }[] = [];
+
+      if (period === "mensal") {
+        const start = startDate ? parseLocalDate(startDate.split("T")[0]) : new Date(new Date().getFullYear(), 0, 1);
+        const now = new Date();
+        let yr = start.getFullYear();
+        let mo = start.getMonth() + 1;
+        while (yr < now.getFullYear() || (yr === now.getFullYear() && mo < now.getMonth() + 1)) {
+          if (!paidSet.has(`${yr}-${mo}`)) missing.push({ month: mo, year: yr });
+          mo++; if (mo > 12) { mo = 1; yr++; }
+        }
+      } else {
+        // Annual: pay anniversary month (same month as start) for each elapsed year
+        const start = startDate ? parseLocalDate(startDate.split("T")[0]) : new Date(new Date().getFullYear(), 0, 1);
+        const startYear = start.getFullYear();
+        const startMonth = start.getMonth() + 1;
+        for (let i = 1; i <= elapsed; i++) {
+          const yr = startYear + i;
+          if (!paidSet.has(`${yr}-${startMonth}`)) missing.push({ month: startMonth, year: yr });
+        }
+      }
+
+      if (missing.length > 0) {
+        await Promise.all(
+          missing.map(({ month: mo, year: yr }) =>
+            fetch(`/api/subscriptions/${subId}`, {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ memberId, paid: true, month: mo, year: yr }),
+            })
+          )
+        );
+      }
+      fetchSubs();
+    } finally {
+      setPayingDebt(null);
+    }
+  }
+
   const mensais = subs.filter(s => s.period !== "anual");
   const anuais  = subs.filter(s => s.period === "anual");
 
@@ -442,10 +515,10 @@ export default function AssinaturasPage() {
   return (
     <>
       <Modal open={!!editSub} onClose={() => setEditSub(null)} title="Editar assinatura" width={580}>
-        {editSub && <SubForm initial={editSub} onSave={handleSave} onCancel={() => setEditSub(null)} loading={saving} />}
+        {editSub && <SubForm initial={editSub} onSave={handleSave} onCancel={() => setEditSub(null)} loading={saving} customBanks={customBanks} />}
       </Modal>
       <Modal open={showNew} onClose={() => setShowNew(false)} title="Nova assinatura" width={580}>
-        <SubForm onSave={handleSave} onCancel={() => setShowNew(false)} loading={saving} />
+        <SubForm onSave={handleSave} onCancel={() => setShowNew(false)} loading={saving} customBanks={customBanks} />
       </Modal>
 
       {/* #6 — confirmação de exclusão */}
@@ -492,7 +565,11 @@ export default function AssinaturasPage() {
       </Modal>
 
       <div className="topbar">
-        <div className="topbar-l"><div className="crumb">Carteiras</div><div className="page-title">Assinaturas</div></div>
+        <div className="topbar-l">
+          <div className="crumb">Lançamentos</div>
+          <div className="page-title">Assinaturas</div>
+          <div style={{ fontSize: 12, color: "var(--ink-3)", fontWeight: 600, marginTop: 2 }}>Gerenciamento de assinaturas compartilhadas</div>
+        </div>
         <div className="topbar-r">
           <MonthPill label={monthCap} onPrev={prevMonth} onNext={nextMonth} />
           <button className="btn btn-primary" onClick={() => setShowNew(true)}><OrcaIcon name="plus" size={16} />Nova assinatura</button>
@@ -585,7 +662,7 @@ export default function AssinaturasPage() {
 
             {/* Bloco de adimplência */}
             {(() => {
-              const rows: { subName: string; brand: string; icon: string; memberName: string; share: number; paidCount: number; monthsElapsed: number; }[] = [];
+              const rows: { subId: string; memberId: string; startDate: string | null; period: Period; payments: Payment[]; subName: string; brand: string; icon: string; memberName: string; share: number; paidCount: number; monthsElapsed: number; }[] = [];
               for (const s of subs) {
                 const meses = monthsElapsed(s.startDate);
                 // Annual: 1 period due only after at least 12 months have passed; skip if started this month
@@ -595,7 +672,7 @@ export default function AssinaturasPage() {
                   const owed = elapsed * Number(m.share);
                   const paid = Number(m.paidCount) * Number(m.share);
                   if (owed > paid + 0.01) {
-                    rows.push({ subName: s.name, brand: s.brand, icon: s.icon, memberName: m.name, share: Number(m.share), paidCount: m.paidCount, monthsElapsed: elapsed });
+                    rows.push({ subId: s.id, memberId: m.id, startDate: s.startDate, period: s.period, payments: m.payments ?? [], subName: s.name, brand: s.brand, icon: s.icon, memberName: m.name, share: Number(m.share), paidCount: m.paidCount, monthsElapsed: elapsed });
                   }
                 }
               }
@@ -646,6 +723,15 @@ export default function AssinaturasPage() {
                         <div style={{ textAlign: "right" }}>
                           <div className="num" style={{ fontSize: 14, fontWeight: 800, color: "var(--neg)" }}>{formatBRL(debt)}</div>
                           <div className="row-meta">em aberto</div>
+                          <button
+                            className="btn btn-ghost"
+                            style={{ marginTop: 6, fontSize: 11.5, padding: "4px 10px", color: "var(--pos)", gap: 4 }}
+                            disabled={payingDebt === `${r.subId}-${r.memberId}`}
+                            onClick={() => handlePayDebt(r.subId, r.memberId, r.period, r.startDate, r.payments, r.monthsElapsed)}
+                          >
+                            <OrcaIcon name="check" size={12} />
+                            {payingDebt === `${r.subId}-${r.memberId}` ? "Pagando..." : "Pagar tudo"}
+                          </button>
                         </div>
                       </div>
                     );

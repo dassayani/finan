@@ -11,23 +11,36 @@ export const BANKS = {
 export type BankKey = keyof typeof BANKS;
 
 export const CATEGORIES = {
-  casa:    { label: 'Casa/Moradia',       color: '#3B82C4' },
-  alim:    { label: 'Alimentação',        color: '#E08A2B' },
-  imprev:  { label: 'Imprevistos',        color: '#C0556A' },
-  transp:  { label: 'Transporte',         color: '#4C7C9B' },
-  saude:   { label: 'Saúde',             color: '#2FA37A' },
-  pet:     { label: 'Pet',               color: '#A86BC9' },
-  assin:   { label: 'Assinaturas',       color: '#5B49C9' },
-  lazer:   { label: 'Lazer/Bem-estar',   color: '#D96BA0' },
-  compras: { label: 'Compras pessoais',  color: '#C98A1E' },
-  trab:    { label: 'Trabalho/Estudo',   color: '#6B7280' },
-  viagem:  { label: 'Viagens',           color: '#2BA0B5' },
-  reserva: { label: 'Reserva/Investim.', color: '#15543D' },
-  tarifas: { label: 'Tarifas/Impostos',  color: '#8A6D3B' },
-  reemb:   { label: 'Reembolso',         color: '#0E9F6E' },
+  // Despesas
+  casa:        { label: 'Casa/Moradia',             color: '#3B82C4', applicableTo: 'expense' as const },
+  alim:        { label: 'Alimentação',              color: '#E08A2B', applicableTo: 'expense' as const },
+  imprev:      { label: 'Imprevistos',              color: '#C0556A', applicableTo: 'expense' as const },
+  transp:      { label: 'Transporte',               color: '#4C7C9B', applicableTo: 'expense' as const },
+  saude:       { label: 'Saúde',                   color: '#2FA37A', applicableTo: 'expense' as const },
+  pet:         { label: 'Pet',                     color: '#A86BC9', applicableTo: 'expense' as const },
+  assin:       { label: 'Assinaturas',             color: '#5B49C9', applicableTo: 'expense' as const },
+  lazer:       { label: 'Lazer/Bem-estar',         color: '#D96BA0', applicableTo: 'expense' as const },
+  compras:     { label: 'Compras pessoais',        color: '#C98A1E', applicableTo: 'expense' as const },
+  trab:        { label: 'Trabalho/Estudo',         color: '#6B7280', applicableTo: 'expense' as const },
+  viagem:      { label: 'Viagens',                 color: '#2BA0B5', applicableTo: 'expense' as const },
+  reserva:     { label: 'Reserva/Investim.',       color: '#15543D', applicableTo: 'expense' as const },
+  tarifas:     { label: 'Tarifas/Impostos',        color: '#8A6D3B', applicableTo: 'expense' as const },
+  reemb:       { label: 'Reembolso',               color: '#0E9F6E', applicableTo: 'both'    as const },
+  // Receitas
+  salario:     { label: 'Salário / Renda fixa',    color: '#0E9F6E', applicableTo: 'income'  as const },
+  freelance:   { label: 'Freelance / Consultoria', color: '#2BA0B5', applicableTo: 'income'  as const },
+  aluguel_rec: { label: 'Aluguel recebido',        color: '#5B49C9', applicableTo: 'income'  as const },
+  dividendos:  { label: 'Dividendos / Rendimentos',color: '#15543D', applicableTo: 'income'  as const },
+  presente:    { label: 'Presente / Doação',       color: '#D96BA0', applicableTo: 'income'  as const },
+  outros_rec:  { label: 'Outros recebimentos',     color: '#6B7280', applicableTo: 'income'  as const },
 } as const;
 
 export type CategoryKey = keyof typeof CATEGORIES;
+
+export function categoriesFor(type: 'income' | 'expense') {
+  return (Object.entries(CATEGORIES) as [CategoryKey, (typeof CATEGORIES)[CategoryKey]][])
+    .filter(([, c]) => c.applicableTo === type || c.applicableTo === 'both');
+}
 
 export function formatBRL(value: number, { sign = false } = {}): string {
   if (value === null || value === undefined) return '—';

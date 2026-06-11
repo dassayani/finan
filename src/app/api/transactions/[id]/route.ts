@@ -77,5 +77,47 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     data: { isPaid },
   });
 
+  // Sync linked BankEntry when Transaction isPaid changes
+  if (transaction.groupId === `salary-${session.user.id}`) {
+    const month = transaction.date.getUTCMonth() + 1;
+    const year = transaction.date.getUTCFullYear();
+    await prisma.bankEntry.updateMany({
+      where: { userId: session.user.id, groupId: `salary-entry-${session.user.id}-${month}-${year}` },
+      data: { isPaid },
+    });
+  } else if (transaction.groupId?.startsWith("bonus-")) {
+    const entryGroupId = transaction.groupId.replace("bonus-", "bonus-entry-");
+    await prisma.bankEntry.updateMany({
+      where: { userId: session.user.id, groupId: entryGroupId },
+      data: { isPaid },
+    });
+  }
+  // Always try to sync a credit-entry BankEntry linked by transaction id
+  await prisma.bankEntry.updateMany({
+    where: { userId: session.user.id, groupId: `credit-entry-${id}` },
+    data: { isPaid },
+  });
+
+  // Sync loan bank entry and loan payment when a loan-tx-* transaction changes
+  if (transaction.groupId?.startsWith("loan-tx-")) {
+    const parts = transaction.groupId.split("-");
+    const year  = parseInt(parts[parts.length - 1]);
+    const month = parseInt(parts[parts.length - 2]);
+    const loanId = parts.slice(2, parts.length - 2).join("-");
+    await prisma.bankEntry.updateMany({
+      where: { userId: session.user.id, groupId: `loan-entry-${loanId}-${month}-${year}` },
+      data: { isPaid },
+    });
+    if (isPaid) {
+      await prisma.loanPayment.upsert({
+        where: { loanId_month_year: { loanId, month, year } },
+        create: { loanId, month, year },
+        update: { paidAt: new Date() },
+      });
+    } else {
+      await prisma.loanPayment.deleteMany({ where: { loanId, month, year } });
+    }
+  }
+
   return NextResponse.json(transaction);
 }

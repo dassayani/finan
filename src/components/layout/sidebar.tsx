@@ -18,6 +18,7 @@ const NAV_GROUPS = [
     items: [
       { href: "/creditos", label: "Receitas", icon: "arrowDown" },
       { href: "/debito", label: "Despesas", icon: "arrowUp" },
+      { href: "/assinaturas", label: "Assinaturas", icon: "repeat" },
     ],
   },
   {
@@ -25,7 +26,7 @@ const NAV_GROUPS = [
     items: [
       { href: "/bancos", label: "Bancos", icon: "wallet" },
       { href: "/investimentos", label: "Investimentos", icon: "trend" },
-      { href: "/assinaturas", label: "Assinaturas", icon: "repeat" },
+      { href: "/emprestimos", label: "Empréstimos", icon: "coins" },
     ],
   },
 ];

@@ -48,6 +48,15 @@ describe("BancosPage UI flow", () => {
 
     // Wait for bank card to render (requires fetchAll to complete and bankConfigs to be set)
     await waitFor(() => {
+      expect(screen.getAllByRole("button", { name: /Ajustar/i }).length).toBeGreaterThan(0);
+    });
+
+    // Open the balance form by clicking "Ajustar"
+    const ajustarButtons = screen.getAllByRole("button", { name: /Ajustar/i });
+    ajustarButtons.forEach(btn => fireEvent.click(btn));
+
+    // Now the balance input should be visible
+    await waitFor(() => {
       expect(screen.getAllByPlaceholderText("0,00").length).toBeGreaterThan(0);
     });
 
