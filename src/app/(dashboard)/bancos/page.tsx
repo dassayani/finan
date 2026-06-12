@@ -2507,6 +2507,16 @@ export default function BancosPage() {
       .catch(() => {});
   }, []);
 
+  // Backfill: generate BANK_BILL transactions for existing active subscriptions.
+  // If new transactions were created, re-fetch so the fatura reflects them immediately.
+  useEffect(() => {
+    fetch("/api/subscriptions/backfill", { method: "POST" })
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d?.backfilled > 0) fetchAll(); })
+      .catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   type BatchApiResponse = {
     mode: "batch";
     total: number;
