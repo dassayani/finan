@@ -17,8 +17,20 @@ export async function POST() {
   });
 
   await Promise.all(
-    subs.map(s =>
-      generateSubBillTransactions(
+    subs.map(async s => {
+      const expectedDesc = `Assinatura - ${s.name}`;
+
+      // Fix description on existing sub-bill transactions that lack the prefix
+      await prisma.transaction.updateMany({
+        where: {
+          userId: uid,
+          groupId: { startsWith: `sub-bill-${s.id}-` },
+          description: { not: expectedDesc },
+        },
+        data: { description: expectedDesc },
+      });
+
+      await generateSubBillTransactions(
         {
           id: s.id,
           name: s.name,
@@ -29,8 +41,8 @@ export async function POST() {
           createdAt: s.createdAt,
         },
         uid
-      )
-    )
+      );
+    })
   );
 
   return NextResponse.json({ backfilled: subs.length });

@@ -102,7 +102,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     // Update existing unpaid sub-bill transactions to reflect new name/amount/bank
     if (data.name || data.total != null || newBank !== undefined) {
       const updateData: Prisma.TransactionUpdateManyMutationInput = {};
-      if (data.name) updateData.description = data.name as string;
+      if (data.name) updateData.description = `Assinatura - ${data.name as string}`;
       if (data.total != null) updateData.amount = data.total as number;
       if (newBank !== undefined) {
         if (newBank === null) {
@@ -241,7 +241,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
           await prisma.transaction.create({
             data: {
               userId: uid,
-              description: sub.name,
+              description: `Assinatura - ${sub.name}`,
               amount: Number(sub.total),
               type: "EXPENSE",
               expenseType: "BANK_BILL",

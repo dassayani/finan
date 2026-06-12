@@ -66,7 +66,7 @@ export async function generateSubBillTransactions(
   await (db as typeof prisma).transaction.createMany({
     data: missing.map(t => ({
       userId,
-      description: sub.name,
+      description: `Assinatura - ${sub.name}`,
       amount,
       type: "EXPENSE" as const,
       expenseType: "BANK_BILL" as const,
