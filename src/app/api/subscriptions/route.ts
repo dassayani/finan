@@ -87,27 +87,6 @@ export async function GET(req: NextRequest) {
     return true;
   });
 
-  // Backfill: ensure BANK_BILL transactions exist for each active subscription.
-  // generateSubBillTransactions is idempotent — it only creates missing months.
-  const uid = session.user.id;
-  const activeWithBank = filtered.filter(s => s.bank && !s.endDate);
-  await Promise.all(
-    activeWithBank.map(s =>
-      generateSubBillTransactions(
-        {
-          id: s.id,
-          name: s.name,
-          total: Number(s.total),
-          bank: s.bank as BankKey,
-          startDate: s.startDate as Date | null,
-          endDate: null,
-          createdAt: s.createdAt as Date,
-        },
-        uid
-      )
-    )
-  );
-
   return NextResponse.json(filtered);
 }
 
