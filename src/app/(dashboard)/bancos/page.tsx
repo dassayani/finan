@@ -2422,6 +2422,7 @@ export default function BancosPage() {
   const [investments, setInvestments]        = useState<Investment[]>([]);
   const [orphanAssign, setOrphanAssign]      = useState<Record<string, string>>({});
   const [globalOrphans, setGlobalOrphans]    = useState<FullBillTx[]>([]);
+  const [everActiveBanks, setEverActiveBanks] = useState<Set<string>>(new Set());
 
   // Custom banks
   const [customBanks, setCustomBanks]   = useState<CustomBank[]>([]);
@@ -2498,6 +2499,13 @@ export default function BancosPage() {
   }, []);
 
   useEffect(() => { fetchGlobalOrphans(); }, [fetchGlobalOrphans]);
+
+  useEffect(() => {
+    fetch("/api/bank-active")
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d?.banks) setEverActiveBanks(new Set(d.banks)); })
+      .catch(() => {});
+  }, []);
 
   type BatchApiResponse = {
     mode: "batch";
@@ -2890,6 +2898,7 @@ export default function BancosPage() {
   // Bancos padrão ativos: ou têm config explícita ou já têm dados (retrocompatibilidade)
   const activeBankKeys = useMemo(() => {
     const active = new Set(bankConfigs.map(c => c.bank as BankKey));
+    // Inclui bancos com atividade no mês atual
     BANK_KEYS.forEach(k => {
       if (
         balances.some(b => b.bank === k) ||
@@ -2899,8 +2908,10 @@ export default function BancosPage() {
         investments.some(i => i.institution === k)
       ) active.add(k);
     });
+    // Inclui bancos com atividade em qualquer mês (evita sumida em meses sem dados)
+    BANK_KEYS.forEach(k => { if (everActiveBanks.has(k)) active.add(k); });
     return active;
-  }, [bankConfigs, balances, fees, entries, billTransactions, investments]);
+  }, [bankConfigs, balances, fees, entries, billTransactions, investments, everActiveBanks]);
 
   const totalBalance = [
     ...BANK_KEYS.filter(k => activeBankKeys.has(k)).map(k => {
