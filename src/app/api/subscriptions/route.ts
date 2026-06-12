@@ -5,6 +5,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { BANKS } from "@/lib/constants";
 import type { BankKey } from "@/lib/constants";
+import { generateSubBillTransactions } from "@/lib/subscriptions";
 
 const BANK_KEYS = Object.keys(BANKS) as BankKey[];
 function toBankKey(s: string | null | undefined): BankKey | null {
@@ -55,6 +56,8 @@ export async function GET(req: NextRequest) {
   // Shape the response: add paidAt (this month), paidCount and payments (all-time) per member
   const shaped = subs.map(s => ({
     ...s,
+    total: Number(s.total),
+    endDate: s.endDate ?? null,
     members: s.members.map(m => {
       const thisMonth = m.payments.find(p => p.month === month && p.year === year);
       return {
@@ -69,15 +72,41 @@ export async function GET(req: NextRequest) {
     }),
   }));
 
-  // Exclude subscriptions not yet started in the requested month/year.
-  // When startDate is null, fall back to createdAt as the effective start.
-  // Use UTC methods to avoid timezone shift (dates are stored as UTC midnight).
+  // Exclude subscriptions not yet started, or that ended before the requested month/year.
   const filtered = shaped.filter(s => {
     const start = (s.startDate ?? s.createdAt) as Date;
     const sy = start.getUTCFullYear();
     const sm = start.getUTCMonth() + 1;
-    return year > sy || (year === sy && month >= sm);
+    if (!(year > sy || (year === sy && month >= sm))) return false;
+    if (s.endDate) {
+      const endDate = s.endDate as Date;
+      const ey = endDate.getUTCFullYear();
+      const em = endDate.getUTCMonth() + 1;
+      if (year > ey || (year === ey && month > em)) return false;
+    }
+    return true;
   });
+
+  // Backfill: ensure BANK_BILL transactions exist for each active subscription.
+  // generateSubBillTransactions is idempotent — it only creates missing months.
+  const uid = session.user.id;
+  const activeWithBank = filtered.filter(s => s.bank && !s.endDate);
+  await Promise.all(
+    activeWithBank.map(s =>
+      generateSubBillTransactions(
+        {
+          id: s.id,
+          name: s.name,
+          total: Number(s.total),
+          bank: s.bank as BankKey,
+          startDate: s.startDate as Date | null,
+          endDate: null,
+          createdAt: s.createdAt as Date,
+        },
+        uid
+      )
+    )
+  );
 
   return NextResponse.json(filtered);
 }
@@ -109,6 +138,11 @@ export async function POST(req: NextRequest) {
       },
       include: { members: { include: { payments: true } } },
     });
+
+    await generateSubBillTransactions(
+      { ...sub, total: Number(sub.total), endDate: null },
+      session.user.id
+    );
 
     return NextResponse.json(sub, { status: 201 });
   } catch (error) {

@@ -185,6 +185,7 @@ model Subscription {
   account      String?
   period       String               @default("mensal")
   startDate    DateTime?            @map("start_date")
+  endDate      DateTime?            @map("end_date")
   bank         BankKey?
   customBankId String?              @map("custom_bank_id")
   createdAt    DateTime             @default(now()) @map("created_at")

@@ -25,7 +25,7 @@ type Period = "mensal" | "anual";
 
 interface Payment { month: number; year: number; paidAt: string; }
 interface Member { id: string; name: string; share: number; isOwner: boolean; paidAt: string | null; paidCount: number; payments?: Payment[]; }
-interface Sub { id: string; name: string; brand: string; icon: string; total: number; account: string; period: Period; startDate: string | null; bank: string | null; customBankId: string | null; members: Member[]; }
+interface Sub { id: string; name: string; brand: string; icon: string; total: number; account: string; period: Period; startDate: string | null; endDate: string | null; bank: string | null; customBankId: string | null; members: Member[]; }
 
 function monthsElapsed(startDate: string | null): number {
   const start = startDate ? new Date(startDate) : new Date(new Date().getFullYear(), 0, 1);
@@ -50,13 +50,14 @@ function StatusBtn({ paid, onToggle, paidLabel, pendingLabel }: { paid: boolean;
 }
 
 // ─── SubCard ──────────────────────────────────────────────────────────────────
-function SubCard({ s, onEdit, onDelete, onToggleMember, onMemberHistory, onPayAll }: {
+function SubCard({ s, onEdit, onDelete, onToggleMember, onMemberHistory, onPayAll, onEncerrar }: {
   s: Sub;
   onEdit: () => void;
   onDelete: () => void;
   onToggleMember: (memberId: string, paid: boolean) => void;
   onMemberHistory: (member: Member) => void;
   onPayAll: () => void;
+  onEncerrar: () => void;
 }) {
   const me = s.members.find(p => p.isOwner);
   const others = s.members.filter(p => !p.isOwner);
@@ -83,12 +84,21 @@ function SubCard({ s, onEdit, onDelete, onToggleMember, onMemberHistory, onPayAl
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <div style={{ textAlign: "right" }}>
             <div className="num" style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 18 }}>{formatBRL(Number(s.total))}</div>
-            <div style={{ fontSize: 11, fontWeight: 600, opacity: .85 }}>{s.period === "anual" ? "por ano" : "por mês"}</div>
+            <div style={{ fontSize: 11, fontWeight: 600, opacity: .85 }}>
+              {s.endDate
+                ? <span style={{ background: "rgba(0,0,0,.25)", borderRadius: 5, padding: "1px 6px" }}>Encerrada</span>
+                : s.period === "anual" ? "por ano" : "por mês"}
+            </div>
           </div>
           <div style={{ display: "flex", gap: 4 }}>
             <button onClick={onEdit} style={{ background: "rgba(255,255,255,.18)", border: "none", borderRadius: 7, cursor: "pointer", color: "#fff", width: 30, height: 30, display: "grid", placeItems: "center" }}>
               <OrcaIcon name="edit" size={14} />
             </button>
+            {!s.endDate && (
+              <button onClick={onEncerrar} title="Encerrar assinatura" style={{ background: "rgba(255,255,255,.18)", border: "none", borderRadius: 7, cursor: "pointer", color: "#fff", width: 30, height: 30, display: "grid", placeItems: "center" }}>
+                <OrcaIcon name="close" size={14} />
+              </button>
+            )}
             <button onClick={onDelete} style={{ background: "rgba(255,255,255,.18)", border: "none", borderRadius: 7, cursor: "pointer", color: "#fff", width: 30, height: 30, display: "grid", placeItems: "center" }}>
               <OrcaIcon name="trash" size={14} />
             </button>
@@ -336,12 +346,13 @@ function SubForm({ initial, onSave, onCancel, loading, customBanks = [] }: { ini
 }
 
 // ─── Section of subs ──────────────────────────────────────────────────────────
-function SubSection({ title, subs, onEdit, onDelete, onToggleMember, onMemberHistory, onPayAll }: {
+function SubSection({ title, subs, onEdit, onDelete, onToggleMember, onMemberHistory, onPayAll, onEncerrar }: {
   title: string; subs: Sub[];
   onEdit: (s: Sub) => void; onDelete: (id: string, name: string) => void;
   onToggleMember: (subId: string, memberId: string, paid: boolean) => void;
   onMemberHistory: (subName: string, member: Member) => void;
   onPayAll: (subId: string, members: Member[]) => void;
+  onEncerrar: (id: string, name: string) => void;
 }) {
   if (subs.length === 0) return null;
   return (
@@ -355,6 +366,7 @@ function SubSection({ title, subs, onEdit, onDelete, onToggleMember, onMemberHis
             onToggleMember={(memberId, paid) => onToggleMember(s.id, memberId, paid)}
             onMemberHistory={member => onMemberHistory(s.name, member)}
             onPayAll={() => onPayAll(s.id, s.members)}
+            onEncerrar={() => onEncerrar(s.id, s.name)}
           />
         ))}
       </div>
@@ -372,7 +384,8 @@ export default function AssinaturasPage() {
   const [saving,        setSaving]        = useState(false);
   const [editSub,       setEditSub]       = useState<Sub | null>(null);
   const [showNew,       setShowNew]       = useState(false);
-  const [deleteTarget,  setDeleteTarget]  = useState<{ id: string; name: string } | null>(null);
+  const [deleteTarget,   setDeleteTarget]   = useState<{ id: string; name: string } | null>(null);
+  const [encerrarTarget, setEncerrarTarget] = useState<{ id: string; name: string } | null>(null);
   const [historyTarget, setHistoryTarget] = useState<{ subName: string; member: Member } | null>(null);
   const [payingDebt,    setPayingDebt]    = useState<string | null>(null);
   const [customBanks,   setCustomBanks]   = useState<CustomBank[]>([]);
@@ -412,6 +425,17 @@ export default function AssinaturasPage() {
     if (!deleteTarget) return;
     await fetch(`/api/subscriptions/${deleteTarget.id}`, { method: "DELETE" });
     setDeleteTarget(null);
+    fetchSubs();
+  }
+
+  async function handleEncerrarConfirm() {
+    if (!encerrarTarget) return;
+    await fetch(`/api/subscriptions/${encerrarTarget.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "encerrar" }),
+    });
+    setEncerrarTarget(null);
     fetchSubs();
   }
 
@@ -519,6 +543,20 @@ export default function AssinaturasPage() {
       </Modal>
       <Modal open={showNew} onClose={() => setShowNew(false)} title="Nova assinatura" width={580}>
         <SubForm onSave={handleSave} onCancel={() => setShowNew(false)} loading={saving} customBanks={customBanks} />
+      </Modal>
+
+      {/* Confirmação de encerramento */}
+      <Modal open={!!encerrarTarget} onClose={() => setEncerrarTarget(null)} title="Encerrar assinatura" width={420}>
+        <p style={{ margin: "0 0 20px", color: "var(--ink-2)", lineHeight: 1.6 }}>
+          Deseja encerrar <strong>{encerrarTarget?.name}</strong>?<br />
+          A assinatura continuará aparecendo na fatura deste mês e será removida dos meses seguintes.
+        </p>
+        <div style={{ display: "flex", gap: 10 }}>
+          <button className="btn btn-ghost" style={{ flex: 1 }} onClick={() => setEncerrarTarget(null)}>Cancelar</button>
+          <button className="btn btn-primary" style={{ flex: 1, background: "var(--warn)" }} onClick={handleEncerrarConfirm}>
+            <OrcaIcon name="close" size={15} />Encerrar
+          </button>
+        </div>
       </Modal>
 
       {/* #6 — confirmação de exclusão */}
@@ -657,8 +695,8 @@ export default function AssinaturasPage() {
           </div>
         ) : (
           <>
-            <SubSection title="Mensais" subs={mensais} onEdit={setEditSub} onDelete={(id, name) => setDeleteTarget({ id, name })} onToggleMember={handleToggleMember} onMemberHistory={(subName, member) => setHistoryTarget({ subName, member })} onPayAll={handlePayAll} />
-            <SubSection title="Anuais"  subs={anuais}  onEdit={setEditSub} onDelete={(id, name) => setDeleteTarget({ id, name })} onToggleMember={handleToggleMember} onMemberHistory={(subName, member) => setHistoryTarget({ subName, member })} onPayAll={handlePayAll} />
+            <SubSection title="Mensais" subs={mensais} onEdit={setEditSub} onDelete={(id, name) => setDeleteTarget({ id, name })} onToggleMember={handleToggleMember} onMemberHistory={(subName, member) => setHistoryTarget({ subName, member })} onPayAll={handlePayAll} onEncerrar={(id, name) => setEncerrarTarget({ id, name })} />
+            <SubSection title="Anuais"  subs={anuais}  onEdit={setEditSub} onDelete={(id, name) => setDeleteTarget({ id, name })} onToggleMember={handleToggleMember} onMemberHistory={(subName, member) => setHistoryTarget({ subName, member })} onPayAll={handlePayAll} onEncerrar={(id, name) => setEncerrarTarget({ id, name })} />
 
             {/* Bloco de adimplência */}
             {(() => {

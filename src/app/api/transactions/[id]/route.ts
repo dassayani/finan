@@ -98,6 +98,31 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     data: { isPaid },
   });
 
+  // Sync SubscriptionPayment (owner) when a sub-bill-* transaction isPaid changes
+  if (transaction.groupId?.startsWith("sub-bill-")) {
+    // groupId format: sub-bill-{subId}-{month}-{year}
+    const parts = transaction.groupId.split("-");
+    const subYear  = parseInt(parts[parts.length - 1]);
+    const subMonth = parseInt(parts[parts.length - 2]);
+    const subId    = parts.slice(2, parts.length - 2).join("-");
+    const owner = await prisma.subscriptionMember.findFirst({
+      where: { subscriptionId: subId, isOwner: true },
+    });
+    if (owner) {
+      if (isPaid) {
+        await prisma.subscriptionPayment.upsert({
+          where: { memberId_month_year: { memberId: owner.id, month: subMonth, year: subYear } },
+          create: { memberId: owner.id, month: subMonth, year: subYear },
+          update: { paidAt: new Date() },
+        });
+      } else {
+        await prisma.subscriptionPayment.deleteMany({
+          where: { memberId: owner.id, month: subMonth, year: subYear },
+        });
+      }
+    }
+  }
+
   // Sync loan bank entry and loan payment when a loan-tx-* transaction changes
   if (transaction.groupId?.startsWith("loan-tx-")) {
     const parts = transaction.groupId.split("-");
