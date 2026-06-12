@@ -2418,9 +2418,10 @@ export default function BancosPage() {
   // Standard banks
   const [balances, setBalances]         = useState<BankBalance[]>([]);
   const [fees, setFees]                 = useState<BankFee[]>([]);
-  const [billTransactions, setBillTxs]  = useState<FullBillTx[]>([]);
-  const [investments, setInvestments]   = useState<Investment[]>([]);
-  const [orphanAssign, setOrphanAssign] = useState<Record<string, string>>({});
+  const [billTransactions, setBillTxs]       = useState<FullBillTx[]>([]);
+  const [investments, setInvestments]        = useState<Investment[]>([]);
+  const [orphanAssign, setOrphanAssign]      = useState<Record<string, string>>({});
+  const [globalOrphans, setGlobalOrphans]    = useState<FullBillTx[]>([]);
 
   // Custom banks
   const [customBanks, setCustomBanks]   = useState<CustomBank[]>([]);
@@ -2488,6 +2489,15 @@ export default function BancosPage() {
     setLoading(true);
     fetchAll();
   }, [fetchAll]);
+
+  const fetchGlobalOrphans = useCallback(async () => {
+    try {
+      const res = await fetch("/api/transactions?expenseType=BANK_BILL&bank=none");
+      if (res.ok) setGlobalOrphans(await res.json());
+    } catch {}
+  }, []);
+
+  useEffect(() => { fetchGlobalOrphans(); }, [fetchGlobalOrphans]);
 
   type BatchApiResponse = {
     mode: "batch";
@@ -2676,12 +2686,12 @@ export default function BancosPage() {
       body: JSON.stringify({ bank }),
     });
     setOrphanAssign(prev => { const n = { ...prev }; delete n[id]; return n; });
-    await fetchAll();
+    await Promise.all([fetchAll(), fetchGlobalOrphans()]);
   }
 
   async function deleteOrphanedTx(id: string) {
     await fetch(`/api/transactions/${id}`, { method: "DELETE" });
-    await fetchAll();
+    await Promise.all([fetchAll(), fetchGlobalOrphans()]);
   }
 
   // ── Custom bank handlers ──
@@ -2925,7 +2935,8 @@ export default function BancosPage() {
   const monthLabel = new Date(year, month - 1).toLocaleDateString("pt-BR", { month: "long", year: "numeric" });
   const monthCap = monthLabel.charAt(0).toUpperCase() + monthLabel.slice(1);
   const isFutureMonth = year > now.getFullYear() || (year === now.getFullYear() && month > now.getMonth() + 1);
-  const orphanedBillTxs = billTransactions.filter(t => !t.bank);
+  // keep local orphans for immediate display; global covers all months
+  const orphanedBillTxs = globalOrphans;
   function prevMonth() { if (month === 1) { setMonth(12); setYear(y => y - 1); } else setMonth(m => m - 1); }
   function nextMonth() { if (month === 12) { setMonth(1); setYear(y => y + 1); } else setMonth(m => m + 1); }
 
@@ -3053,14 +3064,16 @@ export default function BancosPage() {
             <div style={{ marginBottom: 20, padding: "14px 18px", background: "var(--warn-soft)", border: "1.5px solid var(--warn)", borderRadius: "var(--r-md)" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 13.5, color: "var(--warn)" }}>
                 <OrcaIcon name="flame" size={15} />
-                {orphanedBillTxs.length} lançamento{orphanedBillTxs.length > 1 ? "s" : ""} de fatura sem banco — selecione o banco para recuperar
+                {orphanedBillTxs.length} lançamento{orphanedBillTxs.length > 1 ? "s" : ""} de fatura sem banco encontrado{orphanedBillTxs.length > 1 ? "s" : ""} — selecione o banco correto para recuperar
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                 {orphanedBillTxs.map(tx => (
                   <div key={tx.id} style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", background: "var(--surface)", borderRadius: "var(--r-sm)", padding: "8px 12px" }}>
                     <span style={{ flex: "1 1 180px", fontSize: 13, fontWeight: 600, color: "var(--ink)" }}>{tx.description}</span>
                     <span className="num" style={{ fontSize: 13, color: "var(--neg)", fontWeight: 700, minWidth: 80, textAlign: "right" }}>{formatBRL(tx.amount)}</span>
-                    <span style={{ fontSize: 12, color: "var(--ink-3)" }}>{new Date(tx.date).toLocaleDateString("pt-BR")}</span>
+                    <span style={{ fontSize: 12, color: "var(--ink-3)", whiteSpace: "nowrap" }}>
+                      {parseLocalDate(tx.date).toLocaleDateString("pt-BR", { day: "2-digit", month: "short", year: "numeric" })}
+                    </span>
                     <select
                       className="orça-input"
                       value={orphanAssign[tx.id] ?? ""}

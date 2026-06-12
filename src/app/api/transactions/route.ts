@@ -87,7 +87,8 @@ export async function GET(req: NextRequest) {
   }
   if (type) where.type = type;
   if (expenseType) where.expenseType = expenseType;
-  if (bank) where.bank = bank;
+  if (bank === "none") where.bank = null;
+  else if (bank) where.bank = bank;
   if (isPaid !== null) where.isPaid = isPaid === "true";
 
   const transactions = await prisma.transaction.findMany({
