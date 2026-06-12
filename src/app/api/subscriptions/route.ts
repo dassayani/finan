@@ -72,12 +72,10 @@ export async function GET(req: NextRequest) {
     }),
   }));
 
-  // Exclude subscriptions not yet started, or that ended before the requested month/year.
+  // Hide subscriptions that were encerradas before the requested month/year.
+  // Future subscriptions (startDate > current month) are still shown — the
+  // assinaturas page is a management view, not a billing view.
   const filtered = shaped.filter(s => {
-    const start = (s.startDate ?? s.createdAt) as Date;
-    const sy = start.getUTCFullYear();
-    const sm = start.getUTCMonth() + 1;
-    if (!(year > sy || (year === sy && month >= sm))) return false;
     if (s.endDate) {
       const endDate = s.endDate as Date;
       const ey = endDate.getUTCFullYear();
