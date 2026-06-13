@@ -124,12 +124,15 @@ const DEFAULT_DESCONTOS: SalaryItem[] = [
 
 
 // When editing the template, align saved items with the current defaults:
-// preserve amounts for matching names, drop removed items, add new items at 0.
+// preserve amounts for matching names, add new defaults at 0, and keep custom items at the end.
 function mergeWithDefaults(saved: SalaryItem[], defaults: SalaryItem[]): SalaryItem[] {
-  return defaults.map(def => {
+  const merged = defaults.map(def => {
     const existing = saved.find(s => s.name === def.name);
     return existing ? { ...existing } : { ...def };
   });
+  // Preserve custom items (names not present in defaults)
+  const custom = saved.filter(s => !defaults.some(d => d.name === s.name));
+  return [...merged, ...custom];
 }
 
 const BANK_IDS = Object.keys(BANKS) as BankKey[];
@@ -1068,7 +1071,17 @@ export default function CreditosPage() {
 
   const salaryNet    = salaryData?.effective ? Number(salaryData.effective.netAmount) : 0;
   const bonusTotal   = (bonusPlr ? Number(bonusPlr.netAmount) : 0) + (bonusDecimo ? Number(bonusDecimo.netAmount) : 0);
-  const otherCredits = credits.filter(c => !c.groupId?.startsWith("salary-") && !c.groupId?.startsWith("bonus-"));
+  const otherCredits = credits.filter(c => {
+    if (!c.groupId) return true;
+    if (c.groupId.startsWith("salary-")) return false;
+    if (c.groupId.startsWith("bonus-")) {
+      // Keep bonus from a DIFFERENT year — those are invisible in BonusDisplay (which
+      // only shows the current year) and the user needs to be able to delete them.
+      const bonusYear = parseInt(c.groupId.split("-")[2]);
+      return bonusYear !== year;
+    }
+    return true;
+  });
   const othersTotal  = otherCredits.reduce((a, c) => a + Number(c.amount), 0);
   const grandTotal   = salaryNet + bonusTotal + othersTotal;
 
