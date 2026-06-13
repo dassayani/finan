@@ -47,6 +47,9 @@ export function useDashboardMensal(
   const doFetch = useCallback(async () => {
     setState(s => ({ ...s, loading: true }));
     try {
+      // Ensure subscription bill transactions exist for all active months before querying
+      await fetch("/api/subscriptions/backfill", { method: "POST" }).catch(() => {});
+
       const [dashRes, txRes, incRes, feesRes, balRes, entRes, closingRes] = await Promise.all([
         fetch(`/api/dashboard?year=${year}&month=${month}${exclParam}`),
         fetch(`/api/transactions?month=${month}&year=${year}&type=EXPENSE`),
