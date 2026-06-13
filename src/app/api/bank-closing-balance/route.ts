@@ -76,7 +76,7 @@ export async function GET(req: NextRequest) {
 
     const initial   = bal ? Number(bal.balance) : 0;
     const entradas  = bankEnts.filter(e => e.type === "INCOME").reduce((s, e) => s + Number(e.amount), 0);
-    const saidas    = bankEnts.filter(e => e.type === "EXPENSE").reduce((s, e) => s + Number(e.amount), 0);
+    const saidas    = bankEnts.filter(e => e.type === "EXPENSE" && e.category !== "reserva").reduce((s, e) => s + Number(e.amount), 0);
     const totalFees = bankFees.reduce((s, f) => s + Number(f.amount), 0);
     const paidBill  = bankBills.filter(t => t.type === "EXPENSE").reduce((s, t) => s + Number(t.amount), 0);
     const paidEst   = bankBills.filter(t => t.type === "INCOME").reduce((s, t) => s + Number(t.amount), 0);
@@ -95,7 +95,7 @@ export async function GET(req: NextRequest) {
 
     const initial   = bal ? Number(bal.balance) : 0;
     const entradas  = bankEnts.filter(e => e.type === "INCOME").reduce((s, e) => s + Number(e.amount), 0);
-    const saidas    = bankEnts.filter(e => e.type === "EXPENSE").reduce((s, e) => s + Number(e.amount), 0);
+    const saidas    = bankEnts.filter(e => e.type === "EXPENSE" && e.category !== "reserva").reduce((s, e) => s + Number(e.amount), 0);
     const totalFees = bankFees.reduce((s, f) => s + Number(f.amount), 0);
 
     result[cb.id] = initial + entradas - saidas - totalFees;

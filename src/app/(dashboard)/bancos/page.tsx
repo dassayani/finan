@@ -48,8 +48,9 @@ const ENTRY_PARCEL_PRESETS = [1, 2, 3, 6, 12];
 
 interface BatchEntryItem { description: string; amount: number; type: "INCOME" | "EXPENSE"; month: number; year: number; groupId?: string; installments?: number; category?: string; }
 
-function BankEntryForm({ defaultType, cardMonth, cardYear, onSave, onCancel }: {
+function BankEntryForm({ defaultType, defaultCategory, cardMonth, cardYear, onSave, onCancel }: {
   defaultType: "INCOME" | "EXPENSE";
+  defaultCategory?: CategoryKey;
   cardMonth: number;
   cardYear: number;
   onSave: (items: BatchEntryItem[]) => Promise<boolean>;
@@ -58,7 +59,7 @@ function BankEntryForm({ defaultType, cardMonth, cardYear, onSave, onCancel }: {
   const [txType, setTxType]     = useState<"INCOME" | "EXPENSE">(defaultType);
   const [description, setDesc]  = useState("");
   const [amount, setAmount]     = useState("");
-  const [category, setCategory] = useState<CategoryKey>(defaultType === "INCOME" ? "salario" : "compras");
+  const [category, setCategory] = useState<CategoryKey>(defaultCategory ?? (defaultType === "INCOME" ? "salario" : "compras"));
 
   function handleTypeChange(t: "INCOME" | "EXPENSE") {
     setTxType(t);
@@ -253,6 +254,7 @@ function DeleteEntryDialog({ description, installments, onDeleteOne, onDeleteAll
 
 function EntrySection({
   label, type, entries, onAdd, onDelete, onUpdate, onDeleteGroup, onTotalChange, cardMonth, cardYear, onAddBatch, onTogglePaid,
+  accentColor, defaultCategory,
 }: {
   label: string;
   type: "INCOME" | "EXPENSE";
@@ -266,6 +268,8 @@ function EntrySection({
   cardYear?: number;
   onAddBatch?: (items: BatchEntryItem[]) => Promise<boolean>;
   onTogglePaid?: (id: string, isPaid: boolean) => Promise<void>;
+  accentColor?: string;
+  defaultCategory?: CategoryKey;
 }) {
   const [local, setLocal] = useState<CardEntry[]>(entries);
   const [showAdd, setShowAdd] = useState(false);
@@ -339,7 +343,7 @@ function EntrySection({
         <span style={{ display: "grid", placeItems: "center", color: "var(--ink-3)", transition: "transform .2s", transform: accOpen ? "rotate(90deg)" : "rotate(0)" }}>
           <OrcaIcon name="chevR" size={16} />
         </span>
-        <span style={{ width: 8, height: 8, borderRadius: 3, flexShrink: 0, background: isPos ? "var(--pos)" : "var(--neg)" }} />
+        <span style={{ width: 8, height: 8, borderRadius: 3, flexShrink: 0, background: isPos ? "var(--pos)" : (accentColor ?? "var(--neg)") }} />
         <span style={{ fontSize: 12, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: "var(--ink-2)" }}>{label}</span>
         {local.length > 0 && (
           <span style={{ fontSize: 11, fontWeight: 700, color: "var(--ink-3)", background: "var(--surface-2)", borderRadius: 999, padding: "2px 8px" }}>
@@ -347,7 +351,7 @@ function EntrySection({
           </span>
         )}
         <span style={{ flex: 1 }} />
-        <span className="num" style={{ fontWeight: 700, fontSize: 13.5, color: isPos ? (local.length === 0 ? "var(--ink-3)" : "var(--pos)") : (total === 0 ? "var(--ink-3)" : "var(--neg)") }}>
+        <span className="num" style={{ fontWeight: 700, fontSize: 13.5, color: isPos ? (local.length === 0 ? "var(--ink-3)" : "var(--pos)") : (total === 0 ? "var(--ink-3)" : (accentColor ?? "var(--neg)")) }}>
           {local.length === 0 ? <span style={{ fontWeight: 600, fontSize: 12.5 }}>Nenhum</span> : (isPos ? "+" : "−") + formatBRL(total)}
         </span>
         <button
@@ -427,34 +431,34 @@ function EntrySection({
                       )}
                     </div>
                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      <span className="num" style={{ fontWeight: 700, color: isPos ? "var(--pos)" : "var(--neg)" }}>
+                      <span className="num" style={{ fontWeight: 700, color: isPos ? "var(--pos)" : (accentColor ?? "var(--neg)") }}>
                         {isPos ? "+" : "−"}{formatBRL(Number(e.amount))}
                       </span>
                       {!e.id.startsWith("__tmp") && (
-                        (e.groupId?.startsWith("salary-entry-") || e.groupId?.startsWith("bonus-entry-") || e.groupId?.startsWith("credit-entry-") || e.groupId?.startsWith("sub-entry-") || e.groupId?.startsWith("loan-entry-")) && onTogglePaid ? (
-                          <PayToggle
-                            paid={e.isPaid ?? false}
-                            onToggle={() => {
-                              const next = !(e.isPaid ?? false);
-                              setLocal(prev => prev.map(r => r.id === e.id ? { ...r, isPaid: next } : r));
-                              onTogglePaid(e.id, next);
-                            }}
-                            label={{ paid: "Recebido", pending: "Receber" }}
-                          />
-                        ) : (
-                          <>
-                            {onUpdate && (
+                        <>
+                          {(e.groupId?.startsWith("salary-entry-") || e.groupId?.startsWith("bonus-entry-") || e.groupId?.startsWith("credit-entry-") || e.groupId?.startsWith("sub-entry-") || e.groupId?.startsWith("loan-entry-")) && onTogglePaid ? (
+                            <PayToggle
+                              paid={e.isPaid ?? false}
+                              onToggle={() => {
+                                const next = !(e.isPaid ?? false);
+                                setLocal(prev => prev.map(r => r.id === e.id ? { ...r, isPaid: next } : r));
+                                onTogglePaid(e.id, next);
+                              }}
+                              label={{ paid: "Recebido", pending: "Receber" }}
+                            />
+                          ) : (
+                            onUpdate && (
                               <button onClick={() => startEdit(e)}
                                 style={{ background: "none", border: "none", cursor: "pointer", color: "var(--ink-3)", padding: 2 }}>
                                 <OrcaIcon name="edit" size={13} />
                               </button>
-                            )}
-                            <button onClick={() => setPendingDelete(pendingDelete?.id === e.id ? null : e)}
-                              style={{ background: "none", border: "none", cursor: "pointer", color: pendingDelete?.id === e.id ? "var(--neg)" : "var(--ink-3)", padding: 2 }}>
-                              <OrcaIcon name="trash" size={13} />
-                            </button>
-                          </>
-                        )
+                            )
+                          )}
+                          <button onClick={() => setPendingDelete(pendingDelete?.id === e.id ? null : e)}
+                            style={{ background: "none", border: "none", cursor: "pointer", color: pendingDelete?.id === e.id ? "var(--neg)" : "var(--ink-3)", padding: 2 }}>
+                            <OrcaIcon name="trash" size={13} />
+                          </button>
+                        </>
                       )}
                     </div>
                   </div>
@@ -478,6 +482,7 @@ function EntrySection({
             {showAdd && onAddBatch && cardMonth && cardYear && (
               <BankEntryForm
                 defaultType={type}
+                defaultCategory={defaultCategory}
                 cardMonth={cardMonth}
                 cardYear={cardYear}
                 onSave={async items => {
@@ -1284,7 +1289,7 @@ function EditBillModal({
 function BankCard({
   name, short, color, textColor,
   bankId,
-  balance, prevBalance, fees, billTransactions = [], hasCreditCard = true, investments, entradas, saidas,
+  balance, prevBalance, fees, billTransactions = [], hasCreditCard = true, investments, entradas, saidas, investSaidas = [],
   onSaveBalance, onClearBalance, onAddFee, onDeleteFee, onAddEntry, onDeleteEntry, onUpdateEntry,
   onAddBillTxs, onUpdateBillTx, onDeleteBillTx, onDeleteBillTxGroup, onDeleteEntryGroup, onTogglePaid,
   onPayAllBillTxs, onDeleteAllBillTxs,
@@ -1303,6 +1308,7 @@ function BankCard({
   investments: CardInvestment[];
   entradas: CardEntry[];
   saidas: CardEntry[];
+  investSaidas?: CardEntry[];
   onSaveBalance: (v: number) => Promise<boolean>;
   onClearBalance?: () => Promise<void>;
   onAddFee: (name: string, amount: number, day: number) => Promise<boolean>;
@@ -1372,13 +1378,16 @@ function BankCard({
   }, [balance]);
 
   // totais locais — atualizados por callbacks dos EntrySection filhos
-  const [localEntTotal, setLocalEntTotal] = useState(entradas.reduce((s, e) => s + Number(e.amount), 0));
-  const [localSaiTotal, setLocalSaiTotal] = useState(saidas.reduce((s, e) => s + Number(e.amount), 0));
+  const [localEntTotal, setLocalEntTotal]     = useState(entradas.reduce((s, e) => s + Number(e.amount), 0));
+  const [localSaiTotal, setLocalSaiTotal]     = useState(saidas.reduce((s, e) => s + Number(e.amount), 0));
+  const [localInvestTotal, setLocalInvestTotal] = useState(investSaidas.reduce((s, e) => s + Number(e.amount), 0));
 
-  const entradasKey = entradas.map(e => e.id).join(",");
-  const saidasKey   = saidas.map(e => e.id).join(",");
+  const entradasKey  = entradas.map(e => e.id).join(",");
+  const saidasKey    = saidas.map(e => e.id).join(",");
+  const investKey    = investSaidas.map(e => e.id).join(",");
   useEffect(() => { setLocalEntTotal(entradas.reduce((s, e) => s + Number(e.amount), 0)); }, [entradasKey]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { setLocalSaiTotal(saidas.reduce((s, e) => s + Number(e.amount), 0)); }, [saidasKey]);   // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { setLocalInvestTotal(investSaidas.reduce((s, e) => s + Number(e.amount), 0)); }, [investKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const totalFees   = fees.reduce((s, f) => s + Number(f.amount), 0);
   const totalInvest = investments.reduce((s, i) => s + Number(i.value), 0);
@@ -1534,7 +1543,7 @@ function BankCard({
             { label: "Entradas", value: localEntTotal, prefix: "+" },
             { label: "Saídas", value: localSaiTotal, prefix: "−" },
             { label: "Tarifas", value: totalFees, prefix: "−" },
-            ...(hasCreditCard ? [{ label: "Fatura", value: netBill, prefix: "−" }] : []),
+            ...(hasCreditCard ? [{ label: "Fatura", value: totalBillNet, prefix: "−" }] : []),
           ].map(stat => (
             <div key={stat.label} style={{ flex: 1, background: "rgba(255,255,255,.14)", borderRadius: 10, padding: "8px 9px" }}>
               <div style={{ fontSize: 9.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".03em", opacity: 0.82, marginBottom: 2 }}>{stat.label}</div>
@@ -1751,7 +1760,7 @@ function BankCard({
               </button>
             )}
             <span className="num" style={{ fontWeight: 700, fontSize: 13.5, color: billTransactions.length === 0 ? "var(--ink-3)" : "var(--neg)" }}>
-              {billTransactions.length === 0 ? <span style={{ fontWeight: 600, fontSize: 12.5 }}>Nenhuma</span> : "−" + formatBRL(netBill)}
+              {billTransactions.length === 0 ? <span style={{ fontWeight: 600, fontSize: 12.5 }}>Nenhuma</span> : "−" + formatBRL(totalBillNet)}
             </span>
             <button
               onClick={e => { e.stopPropagation(); setShowBillForm(o => !o); if (!openFatura) setOpenFatura(true); }}
@@ -1884,7 +1893,24 @@ function BankCard({
         </div>
       )}
 
-      {/* ── Investimentos (standard banks only) ── */}
+      {/* ── Investimentos — aportes/transferências (BankEntries categoria reserva) ── */}
+      <EntrySection
+        label="Investimentos"
+        type="EXPENSE"
+        entries={investSaidas}
+        accentColor="var(--warn)"
+        defaultCategory="reserva"
+        onAdd={(d, a) => onAddEntry(d, a, "EXPENSE")}
+        onDelete={onDeleteEntry}
+        onUpdate={onUpdateEntry}
+        onDeleteGroup={onDeleteEntryGroup}
+        onTotalChange={setLocalInvestTotal}
+        cardMonth={month} cardYear={year}
+        onAddBatch={onAddEntryBatch}
+        onTogglePaid={onToggleEntryPaid}
+      />
+
+      {/* ── Patrimônio investido (Investment model — valores de carteira) ── */}
       {investments.length > 0 && (
         <div style={{ padding: "12px 20px", borderBottom: "1px solid var(--line-2)" }}>
           <div className="section-label" style={{ marginBottom: 8 }}>Investimentos</div>
@@ -2932,7 +2958,7 @@ export default function BancosPage() {
       const paidTxs = billTransactions.filter(t => t.bank === k && t.isPaid);
       const bill  = Math.max(0, paidTxs.filter(t => t.type === "EXPENSE").reduce((s, t) => s + Number(t.amount), 0) - paidTxs.filter(t => t.type === "INCOME").reduce((s, t) => s + Number(t.amount), 0));
       const ins   = entries.filter(e => e.bank === k && e.type === "INCOME");
-      const outs  = entries.filter(e => e.bank === k && e.type === "EXPENSE");
+      const outs  = entries.filter(e => e.bank === k && e.type === "EXPENSE" && e.category !== "reserva");
       return calcSaldoAtual(bal, pBal, bfees, bill, ins, outs);
     }),
     ...customBanks.map(cb => {
@@ -2941,7 +2967,7 @@ export default function BancosPage() {
       const pBal   = prevS !== null ? { balance: prevS } : undefined;
       const cbfees = customFees.filter(f => f.customBankId === cb.id);
       const ins    = entries.filter(e => e.customBankId === cb.id && e.type === "INCOME");
-      const outs   = entries.filter(e => e.customBankId === cb.id && e.type === "EXPENSE");
+      const outs   = entries.filter(e => e.customBankId === cb.id && e.type === "EXPENSE" && e.category !== "reserva");
       return calcSaldoAtual(bal, pBal, cbfees, 0, ins, outs);
     }),
   ].reduce((s, v) => s + v, 0);
@@ -3129,8 +3155,10 @@ export default function BancosPage() {
                   const bal = balances.find(b => b.bank === bankKey && b.month === month && b.year === year);
                   const bankFees = fees.filter(f => f.bank === bankKey);
                   const bankInvest = investments.filter(i => i.institution === bankKey).map(i => ({ id: i.id, name: i.name, value: Number(i.value) }));
-                  const bankEntradas = entries.filter(e => e.bank === bankKey && e.type === "INCOME").map(e => ({ id: e.id, description: e.description, amount: Number(e.amount), type: "INCOME" as const, isPaid: e.isPaid, groupId: e.groupId, installments: e.installments, category: e.category }));
-                  const bankSaidas   = entries.filter(e => e.bank === bankKey && e.type === "EXPENSE").map(e => ({ id: e.id, description: e.description, amount: Number(e.amount), type: "EXPENSE" as const, isPaid: e.isPaid, groupId: e.groupId, installments: e.installments, category: e.category }));
+                  const bankEntradas    = entries.filter(e => e.bank === bankKey && e.type === "INCOME").map(e => ({ id: e.id, description: e.description, amount: Number(e.amount), type: "INCOME" as const, isPaid: e.isPaid, groupId: e.groupId, installments: e.installments, category: e.category }));
+                  const bankSaidasAll  = entries.filter(e => e.bank === bankKey && e.type === "EXPENSE").map(e => ({ id: e.id, description: e.description, amount: Number(e.amount), type: "EXPENSE" as const, isPaid: e.isPaid, groupId: e.groupId, installments: e.installments, category: e.category }));
+                  const bankSaidas     = bankSaidasAll.filter(e => e.category !== "reserva");
+                  const bankInvestSaidas = bankSaidasAll.filter(e => e.category === "reserva");
                   const cfg = bankConfigs.find(c => c.bank === bankKey);
                   const bankBillTxs = billTransactions.filter(t => t.bank === bankKey);
                   return (
@@ -3146,6 +3174,7 @@ export default function BancosPage() {
                       investments={bankInvest}
                       entradas={bankEntradas}
                       saidas={bankSaidas}
+                      investSaidas={bankInvestSaidas}
                       onSaveBalance={v => saveBalance(bankKey, v)}
                       onClearBalance={() => clearBalance(bankKey)}
                       onAddFee={(n, a, d) => addFee(bankKey, n, a, d)}
@@ -3180,8 +3209,10 @@ export default function BancosPage() {
                   const cb = customBanks.find(b => b.id === item.id)!;
                   const bal = customBalances.find(b => b.customBankId === cb.id && b.month === month && b.year === year);
                   const cbFees = customFees.filter(f => f.customBankId === cb.id);
-                  const cbEntradas = entries.filter(e => e.customBankId === cb.id && e.type === "INCOME").map(e => ({ id: e.id, description: e.description, amount: Number(e.amount), type: "INCOME" as const, isPaid: e.isPaid, groupId: e.groupId, installments: e.installments, category: e.category }));
-                  const cbSaidas   = entries.filter(e => e.customBankId === cb.id && e.type === "EXPENSE").map(e => ({ id: e.id, description: e.description, amount: Number(e.amount), type: "EXPENSE" as const, isPaid: e.isPaid, groupId: e.groupId, installments: e.installments, category: e.category }));
+                  const cbEntradas      = entries.filter(e => e.customBankId === cb.id && e.type === "INCOME").map(e => ({ id: e.id, description: e.description, amount: Number(e.amount), type: "INCOME" as const, isPaid: e.isPaid, groupId: e.groupId, installments: e.installments, category: e.category }));
+                  const cbSaidasAll     = entries.filter(e => e.customBankId === cb.id && e.type === "EXPENSE").map(e => ({ id: e.id, description: e.description, amount: Number(e.amount), type: "EXPENSE" as const, isPaid: e.isPaid, groupId: e.groupId, installments: e.installments, category: e.category }));
+                  const cbSaidas        = cbSaidasAll.filter(e => e.category !== "reserva");
+                  const cbInvestSaidas  = cbSaidasAll.filter(e => e.category === "reserva");
                   return (
                     <BankCard
                       key={`${cb.id}-${month}-${year}`}
@@ -3195,6 +3226,7 @@ export default function BancosPage() {
                       investments={[]}
                       entradas={cbEntradas}
                       saidas={cbSaidas}
+                      investSaidas={cbInvestSaidas}
                       onSaveBalance={v => saveCustomBalance(cb.id, v)}
                       onClearBalance={() => clearCustomBalance(cb.id)}
                       onAddFee={(n, a, d) => addCustomFee(cb.id, n, a, d)}

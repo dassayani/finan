@@ -195,6 +195,14 @@ export async function POST(req: NextRequest) {
               },
             });
           }
+        } else {
+          // Bank removed from template — delete all salary BankEntries inherited from it
+          await tx.bankEntry.deleteMany({
+            where: {
+              userId: session.user.id,
+              groupId: { startsWith: `salary-entry-${session.user.id}-` },
+            },
+          });
         }
 
         return saved;
@@ -231,10 +239,17 @@ export async function POST(req: NextRequest) {
         const txDate = new Date(Date.UTC(reqYear, reqMonth - 1, payDay));
         const salaryGroupId = `salary-${session.user.id}`;
 
-        // Resolve bank: use request bank if provided, otherwise fall back to template bank (respecting since date)
+        // Fetch existing BankEntry early — needed to distinguish "user cleared bank" from "never had bank"
+        const entryGroupId = `salary-entry-${session.user.id}-${reqMonth}-${reqYear}`;
+        const existingEntry = await tx.bankEntry.findFirst({ where: { userId: session.user.id, groupId: entryGroupId } });
+
+        // Resolve bank: use request bank if provided.
+        // Fall back to template ONLY when there is no existing BankEntry (brand-new month salary
+        // inheriting template bank). If an entry already existed and bankKey is null, the user
+        // explicitly removed the bank — respect that, do not re-apply the template.
         let resolvedBankKey: BankKey | null = bankKey;
         let resolvedCustomBankId: string | null = customBankId;
-        if (!resolvedBankKey && !resolvedCustomBankId) {
+        if (!resolvedBankKey && !resolvedCustomBankId && !existingEntry) {
           const template = await tx.salary.findUnique({
             where: { userId_month_year: { userId: session.user.id, month: 0, year: 0 } },
             select: { salaryBank: true, salaryCustomBankId: true, salaryBankSinceMonth: true, salaryBankSinceYear: true },
@@ -273,8 +288,6 @@ export async function POST(req: NextRequest) {
         }
 
         // Upsert BankEntry — recreate to pick up bank changes
-        const entryGroupId = `salary-entry-${session.user.id}-${reqMonth}-${reqYear}`;
-        const existingEntry = await tx.bankEntry.findFirst({ where: { userId: session.user.id, groupId: entryGroupId } });
         const preservedIsPaid = existingEntry?.isPaid ?? false;
         await tx.bankEntry.deleteMany({ where: { userId: session.user.id, groupId: entryGroupId } });
 

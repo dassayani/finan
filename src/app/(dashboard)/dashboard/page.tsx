@@ -93,17 +93,18 @@ function ReadOnlySection({ title, badge, color, items, total, paidVal, variant =
 
 // ─── Compact bank card ────────────────────────────────────────────────────────
 
-function CompactBankCard({ id, saldoInicial, entradas, saidas, bankBillTotal, feesTotal, estornosTotal }: {
+function CompactBankCard({ id, saldoInicial, entradas, saidas, investTotal, bankBillTotal, feesTotal }: {
   id: BankKey;
   saldoInicial: number | null;
   entradas: number;
   saidas: number;
+  investTotal: number;
   bankBillTotal: number;
   feesTotal: number;
-  estornosTotal: number;
 }) {
   const bank = BANKS[id];
-  const saldoTotal = (saldoInicial ?? 0) + entradas - saidas - bankBillTotal - feesTotal + estornosTotal;
+  // investTotal entries (categoria reserva) are shown but excluded from saldo — matches BankCard in bancos/page.tsx
+  const saldoTotal = (saldoInicial ?? 0) + entradas - saidas - bankBillTotal - feesTotal;
 
   const row = (label: string, display: string, color: string, bold = false) => (
     <div style={{ display: "flex", justifyContent: "space-between", padding: "3px 14px", fontSize: 12 }}>
@@ -128,11 +129,11 @@ function CompactBankCard({ id, saldoInicial, entradas, saidas, bankBillTotal, fe
           saldoInicial !== null ? formatBRL(saldoInicial) : "—",
           saldoInicial !== null ? (saldoInicial >= 0 ? "var(--pos)" : "var(--neg)") : "var(--ink-3)"
         )}
-        {entradas > 0      && row("Entradas",            formatBRL(entradas),       "var(--pos)")}
-        {saidas > 0        && row("Saídas",              formatBRL(-saidas),        "var(--neg)")}
-        {bankBillTotal > 0 && row("Cartão de crédito",   formatBRL(-bankBillTotal), "var(--neg)")}
-        {feesTotal > 0     && row("Taxas",               formatBRL(-feesTotal),     "var(--neg)")}
-        {estornosTotal > 0 && row("Créditos",            formatBRL(estornosTotal),  "var(--pos)")}
+        {entradas > 0      && row("Entradas",          formatBRL(entradas),       "var(--pos)")}
+        {saidas > 0        && row("Saídas",            formatBRL(-saidas),        "var(--neg)")}
+        {bankBillTotal > 0 && row("Cartão de crédito", formatBRL(-bankBillTotal), "var(--neg)")}
+        {feesTotal > 0     && row("Taxas",             formatBRL(-feesTotal),     "var(--neg)")}
+        {investTotal > 0   && row("Investimentos",     formatBRL(-investTotal),   "var(--warn)")}
         <div style={{ margin: "5px 0 4px", borderTop: "1px solid var(--line-2)" }} />
         {row("Valor total", formatBRL(saldoTotal), saldoTotal >= 0 ? "var(--pos)" : "var(--neg)", true)}
       </div>
@@ -193,21 +194,36 @@ export default function DashboardPage() {
   const sumPaid = (items: Transaction[]) => items.filter(t => t.isPaid).reduce((a, t) => a + Number(t.amount), 0);
   const sumFees = (id: string) => bankFees.filter(f => f.bank === id).reduce((a, f) => a + Number(f.amount), 0);
 
-  const bankEstornos   = incomes.filter(t => t.bank !== null);
+  // Exclude salary/bonus transactions from estornos — they already have BankEntries
+  // in bankEntriesList (entradas), so including them here would double-count them in the saldo.
+  const bankEstornos   = incomes.filter(t =>
+    t.bank !== null &&
+    !t.groupId?.startsWith("salary-") &&
+    !t.groupId?.startsWith("bonus-")
+  );
   const regularIncomes = incomes.filter(t => t.bank === null);
-  const credits        = sum(regularIncomes);
+  const credits        = sum(incomes); // all income: salary, bonus, regular
+  // For bonus transactions, only show the one whose encoded year matches the
+  // current dashboard year. Old-year bonuses paid in the current month (e.g. a
+  // 2025 décimo with payDate in 2026) would otherwise show as duplicates.
+  const listableIncomes = regularIncomes.filter(t => {
+    if (!t.groupId?.startsWith("bonus-")) return true;
+    const bonusYear = parseInt(t.groupId.split("-")[2]);
+    return bonusYear === year;
+  });
 
   const fixosAll    = transactions.filter(t => t.expenseType === "FIXED");
   const variaveisAll = transactions.filter(t => t.expenseType === "VARIABLE");
   const fixosTotal  = sum(fixosAll.filter(t => !t.bank));
   const varsTotal   = sum(variaveisAll.filter(t => !t.bank));
 
+  // bankEstornos are no longer subtracted here — income is already fully counted
+  // in credits (sum(incomes)), subtracting here would double-count it.
   const banksTotals = Object.fromEntries(BANK_IDS.map(id => [
     id,
     Math.max(0,
       sum(transactions.filter(t => (t.expenseType === "BANK_BILL" || t.expenseType === "FIXED" || t.expenseType === "VARIABLE") && t.bank === id))
       + sumFees(id)
-      - (bankEstornos.filter(t => t.bank === id).reduce((a, t) => a + Number(t.amount), 0))
     ),
   ]));
 
@@ -223,7 +239,7 @@ export default function DashboardPage() {
   const paid    = sumPaid(transactions);
   const saldo   = credits - debits;
 
-  const receivedIncome = regularIncomes.filter(t => t.isPaid).reduce((a, t) => a + Number(t.amount), 0);
+  const receivedIncome = incomes.filter(t => t.isPaid).reduce((a, t) => a + Number(t.amount), 0);
   const realSaldo      = receivedIncome - paid;
 
   // "Para onde foi" buckets
@@ -460,8 +476,8 @@ export default function DashboardPage() {
               <ReadOnlySection
                 title="Receitas" color="var(--pos)"
                 badge={<span style={{ color: "var(--pos)", fontWeight: 900, fontSize: 17, lineHeight: 1 }}>↑</span>}
-                items={regularIncomes} total={credits}
-                paidVal={sumPaid(regularIncomes)} variant="income"
+                items={listableIncomes} total={credits}
+                paidVal={sumPaid(listableIncomes)} variant="income"
               />
 
               {/* Gastos Fixos — exclui os com banco (aparecem no card do banco via Saídas) */}
@@ -490,19 +506,19 @@ export default function DashboardPage() {
                       const balRecord = bankBalances.find(b => b.bank === id);
                       const storedBal = balRecord ? Number(balRecord.balance) : null;
                       const saldoInicial = storedBal ?? (prevBankClosing[id] ?? null);
-                      const entradas = bankEntriesList.filter(e => e.bank === id && e.type === "INCOME").reduce((a, e) => a + Number(e.amount), 0);
-                      const saidas   = bankEntriesList.filter(e => e.bank === id && e.type === "EXPENSE").reduce((a, e) => a + Number(e.amount), 0);
-                      const bankBillTotal  = bankBills.reduce((a, t) => a + Number(t.amount), 0);
-                      const feesTotal      = sumFees(id);
-                      const estornosTotal  = bankEstornos.filter(t => t.bank === id).reduce((a, t) => a + Number(t.amount), 0);
+                      const entradas      = bankEntriesList.filter(e => e.bank === id && e.type === "INCOME").reduce((a, e) => a + Number(e.amount), 0);
+                      const saidas        = bankEntriesList.filter(e => e.bank === id && e.type === "EXPENSE" && e.category !== "reserva").reduce((a, e) => a + Number(e.amount), 0);
+                      const investTotal   = bankEntriesList.filter(e => e.bank === id && e.type === "EXPENSE" && e.category === "reserva").reduce((a, e) => a + Number(e.amount), 0);
+                      const bankBillTotal = bankBills.reduce((a, t) => a + Number(t.amount), 0);
+                      const feesTotal     = sumFees(id);
                       return (
                         <CompactBankCard
                           key={id} id={id}
                           saldoInicial={saldoInicial}
                           entradas={entradas} saidas={saidas}
+                          investTotal={investTotal}
                           bankBillTotal={bankBillTotal}
                           feesTotal={feesTotal}
-                          estornosTotal={estornosTotal}
                         />
                       );
                     })}

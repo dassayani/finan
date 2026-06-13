@@ -5,6 +5,21 @@ import { prisma } from "@/lib/prisma";
 import { CATEGORIES } from "@/lib/constants";
 import type { CategoryKey } from "@/lib/constants";
 
+// BankEntry filter: exclude auto-created entries that already have a Transaction counterpart
+function bankEntryAutoExclude() {
+  return {
+    OR: [
+      { groupId: null },
+      {
+        NOT: [
+          { groupId: { startsWith: "salary-entry-" } },
+          { groupId: { startsWith: "bonus-entry-" } },
+        ],
+      },
+    ],
+  };
+}
+
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions);
   if (!session?.user?.id) return NextResponse.json({ error: "Não autorizado" }, { status: 401 });
@@ -19,61 +34,109 @@ export async function GET(req: NextRequest) {
   // Categories to exclude (comma-separated keys)
   const excl = (searchParams.get("excl") ?? "").split(",").map(s => s.trim()).filter(Boolean) as CategoryKey[];
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const exclFilter: Record<string, any> = excl.length > 0 ? { NOT: { category: { in: excl } } } : {};
+  const txExclFilter: Record<string, any> = excl.length > 0 ? { NOT: { category: { in: excl } } } : {};
+  const beExclCategory = excl.length > 0 ? { notIn: [...excl, "reserva" as CategoryKey] } : { not: "reserva" as CategoryKey };
 
   // Annual mode: return monthly aggregates for the whole year in one query
   if (searchParams.get("mode") === "annual") {
     const yearStart = new Date(Date.UTC(year, 0, 1));
     const yearEnd   = new Date(Date.UTC(year, 11, 31, 23, 59, 59, 999));
 
-    const txs = await prisma.transaction.findMany({
-      where: { userId: session.user.id, date: { gte: yearStart, lte: yearEnd }, ...exclFilter },
-      select: { type: true, amount: true, date: true },
-    });
+    const [txs, bankEntriesAnnual] = await Promise.all([
+      prisma.transaction.findMany({
+        where: { userId: session.user.id, date: { gte: yearStart, lte: yearEnd }, ...txExclFilter },
+        select: { type: true, amount: true, date: true },
+      }),
+      prisma.bankEntry.findMany({
+        where: {
+          userId: session.user.id,
+          year,
+          category: beExclCategory,
+          ...bankEntryAutoExclude(),
+        },
+        select: { type: true, amount: true, month: true },
+      }),
+    ]);
 
     const months = Array.from({ length: 12 }, (_, i) => {
       const m = i + 1;
       const monthTxs = txs.filter(t => new Date(t.date).getUTCMonth() + 1 === m);
+      const monthBes = bankEntriesAnnual.filter(e => e.month === m);
       return {
         month: m,
-        income:  monthTxs.filter(t => t.type === "INCOME") .reduce((s, t) => s + Number(t.amount), 0),
-        expense: monthTxs.filter(t => t.type === "EXPENSE").reduce((s, t) => s + Number(t.amount), 0),
+        income:  monthTxs.filter(t => t.type === "INCOME") .reduce((s, t) => s + Number(t.amount), 0)
+               + monthBes.filter(e => e.type === "INCOME") .reduce((s, e) => s + Number(e.amount), 0),
+        expense: monthTxs.filter(t => t.type === "EXPENSE").reduce((s, t) => s + Number(t.amount), 0)
+               + monthBes.filter(e => e.type === "EXPENSE").reduce((s, e) => s + Number(e.amount), 0),
       };
     });
 
     return NextResponse.json({ months });
   }
 
-  const [transactions, categoryGroups, expTypeGroups] = await Promise.all([
+  const [transactions, categoryGroups, expTypeGroups, bankEntries] = await Promise.all([
     prisma.transaction.findMany({
-      where: { userId: session.user.id, date: { gte: start, lte: end }, ...exclFilter },
+      where: { userId: session.user.id, date: { gte: start, lte: end }, ...txExclFilter },
       select: { type: true, amount: true },
     }),
     prisma.transaction.groupBy({
       by: ["category"],
-      where: { userId: session.user.id, type: "EXPENSE", date: { gte: start, lte: end }, category: { not: null }, ...exclFilter },
+      where: { userId: session.user.id, type: "EXPENSE", date: { gte: start, lte: end }, category: { not: null }, ...txExclFilter },
       _sum: { amount: true },
     }),
     prisma.transaction.groupBy({
       by: ["expenseType"],
-      where: { userId: session.user.id, type: "EXPENSE", date: { gte: start, lte: end }, expenseType: { not: null }, ...exclFilter },
+      where: { userId: session.user.id, type: "EXPENSE", date: { gte: start, lte: end }, expenseType: { not: null }, ...txExclFilter },
       _sum: { amount: true },
+    }),
+    prisma.bankEntry.findMany({
+      where: {
+        userId: session.user.id,
+        month,
+        year,
+        category: beExclCategory,
+        ...bankEntryAutoExclude(),
+      },
+      select: { type: true, amount: true, category: true },
     }),
   ]);
 
-  const totalIncome  = transactions.filter(t => t.type === "INCOME") .reduce((s, t) => s + Number(t.amount), 0);
-  const totalExpense = transactions.filter(t => t.type === "EXPENSE").reduce((s, t) => s + Number(t.amount), 0);
+  const beIncome  = bankEntries.filter(e => e.type === "INCOME") .reduce((s, e) => s + Number(e.amount), 0);
+  const beExpense = bankEntries.filter(e => e.type === "EXPENSE").reduce((s, e) => s + Number(e.amount), 0);
 
-  const categoryData = categoryGroups.map(ce => {
-    const key = ce.category as CategoryKey;
-    const cat = key ? CATEGORIES[key] : null;
-    return {
-      key: key ?? "other",
-      name: cat?.label ?? "Sem categoria",
-      value: Number(ce._sum?.amount ?? 0),
-      color: cat?.color ?? "#6b7280",
-    };
-  }).filter(c => c.value > 0).sort((a, b) => b.value - a.value);
+  const totalIncome  = transactions.filter(t => t.type === "INCOME") .reduce((s, t) => s + Number(t.amount), 0) + beIncome;
+  const totalExpense = transactions.filter(t => t.type === "EXPENSE").reduce((s, t) => s + Number(t.amount), 0) + beExpense;
+
+  // Merge BankEntry expense categories into Transaction category groups
+  const beCategoryMap = bankEntries
+    .filter(e => e.type === "EXPENSE" && e.category)
+    .reduce<Record<string, number>>((acc, e) => {
+      const k = e.category as string;
+      acc[k] = (acc[k] ?? 0) + Number(e.amount);
+      return acc;
+    }, {});
+
+  // Build merged category list
+  const mergedKeys = new Set<string>([
+    ...categoryGroups.map(cg => cg.category as string),
+    ...Object.keys(beCategoryMap),
+  ]);
+
+  const categoryData = Array.from(mergedKeys)
+    .map(k => {
+      const txAmt = Number(categoryGroups.find(cg => cg.category === k)?._sum?.amount ?? 0);
+      const beAmt = beCategoryMap[k] ?? 0;
+      const total = txAmt + beAmt;
+      const cat   = CATEGORIES[k as CategoryKey];
+      return {
+        key:   k,
+        name:  cat?.label ?? "Sem categoria",
+        value: total,
+        color: cat?.color ?? "#6b7280",
+      };
+    })
+    .filter(c => c.value > 0)
+    .sort((a, b) => b.value - a.value);
 
   const g = (type: string) => Number(expTypeGroups.find(e => e.expenseType === type)?._sum?.amount ?? 0);
   const expenseTypeData = { fixed: g("FIXED"), variable: g("VARIABLE"), bankBill: g("BANK_BILL") };

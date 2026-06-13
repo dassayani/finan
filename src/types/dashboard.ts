@@ -34,6 +34,7 @@ export interface DashBankEntry {
   description: string;
   amount: number;
   type: "INCOME" | "EXPENSE";
+  category: string | null;
 }
 
 export interface CategoryStat {
