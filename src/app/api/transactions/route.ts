@@ -5,6 +5,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { BANKS, CATEGORIES } from "@/lib/constants";
 import type { CategoryKey, BankKey } from "@/lib/constants";
+import { recordAudit, ipFromRequest } from "@/lib/audit";
 
 const bankKeySchema = z.string().refine((value): value is BankKey => value in BANKS, {
   message: "Banco inválido",
@@ -119,7 +120,12 @@ export async function DELETE(req: NextRequest) {
       const y = Number(year);
       where.date = { gte: new Date(Date.UTC(y, 0, 1)), lte: new Date(Date.UTC(y, 11, 31, 23, 59, 59, 999)) };
     }
-    await prisma.transaction.deleteMany({ where });
+    const result = await prisma.transaction.deleteMany({ where });
+    await recordAudit({
+      userId: uid, action: "DELETE", entity: "transaction",
+      before: { by: "groupId", groupId, year: year ?? null, deleted: result.count },
+      ip: ipFromRequest(req),
+    });
     return new NextResponse(null, { status: 204 });
   }
 
@@ -131,7 +137,12 @@ export async function DELETE(req: NextRequest) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const where: Record<string, any> = { userId: uid, bank, date: { gte: start, lte: end } };
     if (expenseType) where.expenseType = expenseType;
-    await prisma.transaction.deleteMany({ where });
+    const result = await prisma.transaction.deleteMany({ where });
+    await recordAudit({
+      userId: uid, action: "DELETE", entity: "transaction",
+      before: { by: "bank", bank, month: m, year: y, expenseType: expenseType ?? null, deleted: result.count },
+      ip: ipFromRequest(req),
+    });
     return new NextResponse(null, { status: 204 });
   }
 
@@ -169,6 +180,11 @@ export async function PATCH(req: NextRequest) {
     }
 
     const result = await prisma.transaction.updateMany({ where, data });
+    await recordAudit({
+      userId: session.user.id, action: data.isPaid ? "PAY" : "UNPAY", entity: "transaction",
+      after: { by: "bank", bank, month: Number(month), year: Number(year), expenseType: expenseType ?? null, updated: result.count },
+      ip: ipFromRequest(req),
+    });
     return NextResponse.json({ updated: result.count });
   } catch (error) {
     console.error("[transactions PATCH]", error);
@@ -203,6 +219,15 @@ export async function POST(req: NextRequest) {
       const failedCount = failures.length;
       const status = failedCount > 0 ? 207 : 201;
 
+      if (successCount > 0) {
+        await recordAudit({
+          userId: session.user.id, action: "CREATE", entity: "transaction",
+          entityId: created[0]?.id ?? null,
+          after: { mode: "batch", total, successCount, failedCount },
+          ip: ipFromRequest(req),
+        });
+      }
+
       return NextResponse.json({
         mode: "batch",
         total,
@@ -215,6 +240,12 @@ export async function POST(req: NextRequest) {
 
     const data = transactionSchema.parse(body);
     const transaction = await createTransaction(data, session.user.id);
+
+    await recordAudit({
+      userId: session.user.id, action: "CREATE", entity: "transaction", entityId: transaction.id,
+      after: { description: data.description, amount: data.amount, type: data.type, category: data.category ?? null, bank: data.bank ?? null, expenseType: data.expenseType ?? null, isPaid: data.isPaid ?? false },
+      ip: ipFromRequest(req),
+    });
 
     return NextResponse.json(transaction, { status: 201 });
   } catch (error) {

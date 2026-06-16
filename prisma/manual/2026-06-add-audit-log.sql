@@ -1,6 +1,6 @@
 -- Tabela de auditoria (Nível 7) — alinhada ao model AuditLog do schema.prisma.
--- Idempotente. Aplicar com:
---   npx prisma db execute --file prisma/manual/2026-06-add-audit-log.sql --schema prisma/schema.prisma
+-- Idempotente. Aplicar com (Prisma 7 — a URL vem do prisma.config.ts, NÃO use --schema):
+--   npx prisma db execute --file prisma/manual/2026-06-add-audit-log.sql
 -- Depois, `npx prisma db push` reconhece a tabela e não recria nada.
 
 CREATE TABLE IF NOT EXISTS "audit_logs" (

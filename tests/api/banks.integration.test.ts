@@ -9,6 +9,7 @@ const { prismaMock, getServerSessionMock } = vi.hoisted(() => {
       transaction: { create: vi.fn(), findMany: vi.fn(), deleteMany: vi.fn() },
       bankFee: { update: vi.fn(), delete: vi.fn() },
       bankConfig: { upsert: vi.fn(), findMany: vi.fn() },
+      auditLog: { create: vi.fn() },
     },
     getServerSessionMock: vi.fn(),
   };

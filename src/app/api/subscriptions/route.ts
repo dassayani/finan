@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { BANKS } from "@/lib/constants";
 import type { BankKey } from "@/lib/constants";
 import { generateSubBillTransactions } from "@/lib/subscriptions";
+import { recordAudit, ipFromRequest } from "@/lib/audit";
 
 const BANK_KEYS = Object.keys(BANKS) as BankKey[];
 function toBankKey(s: string | null | undefined): BankKey | null {
@@ -120,6 +121,12 @@ export async function POST(req: NextRequest) {
       { ...sub, total: Number(sub.total), endDate: null },
       session.user.id
     );
+
+    await recordAudit({
+      userId: session.user.id, action: "CREATE", entity: "subscription", entityId: sub.id,
+      after: { name: sub.name, total: Number(sub.total), bank: sub.bank, customBankId: sub.customBankId, members: members.length },
+      ip: ipFromRequest(req),
+    });
 
     return NextResponse.json(sub, { status: 201 });
   } catch (error) {

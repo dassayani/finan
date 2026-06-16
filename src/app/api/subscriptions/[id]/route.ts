@@ -10,6 +10,7 @@ import {
   purgeFutureSubBillTransactions,
   deleteAllSubBillTransactions,
 } from "@/lib/subscriptions";
+import { recordAudit, ipFromRequest } from "@/lib/audit";
 
 const BANK_KEYS = Object.keys(BANKS) as BankKey[];
 function toBankKey(s: string | null | undefined): BankKey | null {
@@ -144,6 +145,12 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       }
     }
 
+    await recordAudit({
+      userId: uid, action: "UPDATE", entity: "subscription", entityId: id,
+      after: { name: data.name ?? null, total: data.total ?? null, bank: newBank, customBankId: customBankIdField ?? null },
+      ip: ipFromRequest(req),
+    });
+
     return NextResponse.json(sub);
   } catch (error) {
     console.error("[subscriptions PUT]", error);
@@ -151,16 +158,28 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   }
 }
 
-export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const session = await getServerSession(authOptions);
   if (!session?.user?.id) return NextResponse.json({ error: "Não autorizado" }, { status: 401 });
 
   const { id } = await params;
   const uid = session.user.id;
 
+  const before = await prisma.subscription.findFirst({
+    where: { id, userId: uid },
+    select: { name: true, total: true, bank: true, customBankId: true },
+  });
+
   // Clean up generated BANK_BILL transactions before deleting the subscription
   await deleteAllSubBillTransactions(id, uid);
   await prisma.subscription.delete({ where: { id, userId: uid } });
+
+  await recordAudit({
+    userId: uid, action: "DELETE", entity: "subscription", entityId: id,
+    before: before ? { ...before, total: Number(before.total) } : null,
+    ip: ipFromRequest(req),
+  });
+
   return new NextResponse(null, { status: 204 });
 }
 
@@ -189,6 +208,12 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
     // Delete all future unpaid BANK_BILL transactions
     await purgeFutureSubBillTransactions(id, uid, endDate);
+
+    await recordAudit({
+      userId: uid, action: "UPDATE", entity: "subscription", entityId: id,
+      after: { action: "encerrar", endDate: endDate.toISOString() },
+      ip: ipFromRequest(req),
+    });
 
     return NextResponse.json(sub);
   }
@@ -291,6 +316,12 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       }
     }
   }
+
+  await recordAudit({
+    userId: uid, action: paid ? "PAY" : "UNPAY", entity: "subscription", entityId: id,
+    after: { memberId, month, year, paid: !!paid, share: Number(member.share) },
+    ip: ipFromRequest(req),
+  });
 
   return NextResponse.json({ ok: true });
 }

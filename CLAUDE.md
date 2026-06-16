@@ -237,7 +237,12 @@ O app mantém **dois ledgers paralelos**: `Transaction` (orçamento/dashboard/ca
 
 ### Auditoria — `AuditLog` (Nível 7)
 
-- Toda mutação financeira-chave registra quem/quando/antes/depois/IP: `credits` POST/PUT/DELETE e `transactions` PATCH (PAY/UNPAY).
+- Toda mutação financeira registra quem/quando/antes/depois/IP. Cobertura:
+  - **credits**: POST/PUT/DELETE (CREATE/UPDATE/DELETE)
+  - **transactions (débito)**: POST single+batch (CREATE), `[id]` PUT (UPDATE), `[id]` DELETE, DELETE em massa (por grupo/banco), PATCH `[id]` e em massa (PAY/UNPAY)
+  - **investments**: POST/PUT/DELETE
+  - **subscriptions**: POST/PUT/DELETE + PATCH (encerrar = UPDATE, toggle de pagamento = PAY/UNPAY)
+- `entity`: `credit` | `transaction` | `investment` | `subscription` | `reconciliation`.
 - Helper `recordAudit()` em `src/lib/audit.ts` é **best-effort e não-bloqueante** — roda DEPOIS do commit, com try/catch que nunca propaga. Se a tabela `audit_logs` ainda não existir, a operação financeira **não** quebra.
 - Tabela append-only, **sem cascade** com User (histórico sobrevive à exclusão).
 

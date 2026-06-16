@@ -10,6 +10,7 @@ const { prismaMock, getServerSessionMock } = vi.hoisted(() => ({
       updateMany: vi.fn(),
       deleteMany: vi.fn(),
     },
+    auditLog: { create: vi.fn() },
   },
   getServerSessionMock: vi.fn(),
 }));
@@ -101,5 +102,22 @@ describe("investments POST — validation", () => {
     const res = await POST(jsonReq({ name: "Tesouro", type: "tesouro", value: 1000, institution: "nubank" }));
     expect(res.status).toBe(201);
     expect(prismaMock.investment.create.mock.calls[0][0].data.userId).toBe("user-1");
+  });
+
+  it("records a CREATE audit entry", async () => {
+    prismaMock.investment.create.mockResolvedValue({ id: "inv-1" });
+    await POST(jsonReq({ name: "Tesouro", type: "tesouro", value: 1000 }));
+    expect(prismaMock.auditLog.create).toHaveBeenCalledTimes(1);
+    expect(prismaMock.auditLog.create.mock.calls[0][0].data).toMatchObject({ action: "CREATE", entity: "investment", userId: "user-1" });
+  });
+
+  it("records a DELETE audit entry with the before-state", async () => {
+    prismaMock.investment.findFirst.mockResolvedValue({ name: "X", type: "cdb", value: "500", institution: "itau" });
+    prismaMock.investment.deleteMany.mockResolvedValue({ count: 1 });
+    await DELETE(jsonReq({}), ctx("inv-1"));
+    expect(prismaMock.auditLog.create).toHaveBeenCalledTimes(1);
+    const data = prismaMock.auditLog.create.mock.calls[0][0].data;
+    expect(data).toMatchObject({ action: "DELETE", entity: "investment", entityId: "inv-1" });
+    expect(data.before.value).toBe(500);
   });
 });

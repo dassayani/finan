@@ -1,6 +1,7 @@
 -- Índices de performance — alinhados aos @@index do schema.prisma.
--- Idempotente: seguro rodar múltiplas vezes. Aplicar com:
---   npx prisma db execute --file prisma/manual/2026-06-add-indexes.sql --schema prisma/schema.prisma
+-- Idempotente: seguro rodar múltiplas vezes. Aplicar com (Prisma 7 — a URL vem do
+-- prisma.config.ts, NÃO use --schema):
+--   npx prisma db execute --file prisma/manual/2026-06-add-indexes.sql
 -- Depois, `npx prisma db push` reconhece os índices e não recria nada.
 --
 -- Contexto: o banco foi criado via `db push` e a migration 0_init está corrompida

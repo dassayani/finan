@@ -5,6 +5,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { BANKS } from "@/lib/constants";
 import type { BankKey } from "@/lib/constants";
+import { recordAudit, ipFromRequest } from "@/lib/audit";
 
 const bankKeySchema = z.string().refine((v): v is BankKey => v in BANKS, { message: "Banco inválido" });
 
@@ -29,10 +30,16 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     return NextResponse.json({ error: parsed.error.issues.map(i => i.message).join("; ") }, { status: 400 });
   }
 
+  const uid = session.user.id;
+  const before = await prisma.investment.findFirst({
+    where: { id, userId: uid },
+    select: { name: true, type: true, value: true, institution: true },
+  });
+
   // Ownership-safe update: the compound where ({ id, userId }) guarantees a user
   // can only touch their own records.
   const result = await prisma.investment.updateMany({
-    where: { id, userId: session.user.id },
+    where: { id, userId: uid },
     data: {
       ...parsed.data,
       institution: parsed.data.institution !== undefined ? (parsed.data.institution as BankKey | null) : undefined,
@@ -40,16 +47,35 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   });
   if (result.count === 0) return NextResponse.json({ error: "Não encontrado" }, { status: 404 });
 
-  const inv = await prisma.investment.findFirst({ where: { id, userId: session.user.id } });
+  await recordAudit({
+    userId: uid, action: "UPDATE", entity: "investment", entityId: id,
+    before: before ? { ...before, value: Number(before.value) } : null,
+    after: { ...parsed.data },
+    ip: ipFromRequest(req),
+  });
+
+  const inv = await prisma.investment.findFirst({ where: { id, userId: uid } });
   return NextResponse.json(inv);
 }
 
-export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const session = await getServerSession(authOptions);
   if (!session?.user?.id) return NextResponse.json({ error: "Não autorizado" }, { status: 401 });
 
   const { id } = await params;
-  const result = await prisma.investment.deleteMany({ where: { id, userId: session.user.id } });
+  const uid = session.user.id;
+  const before = await prisma.investment.findFirst({
+    where: { id, userId: uid },
+    select: { name: true, type: true, value: true, institution: true },
+  });
+  const result = await prisma.investment.deleteMany({ where: { id, userId: uid } });
   if (result.count === 0) return NextResponse.json({ error: "Não encontrado" }, { status: 404 });
+
+  await recordAudit({
+    userId: uid, action: "DELETE", entity: "investment", entityId: id,
+    before: before ? { ...before, value: Number(before.value) } : null,
+    ip: ipFromRequest(req),
+  });
+
   return new NextResponse(null, { status: 204 });
 }

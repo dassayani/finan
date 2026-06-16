@@ -33,17 +33,31 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
 
   try {
     const { id } = await params;
+    const uid = session.user.id;
     const body = await req.json();
     const data = updateSchema.parse(body);
 
+    const before = await prisma.transaction.findFirst({
+      where: { id, userId: uid },
+      select: { description: true, amount: true, type: true, category: true, bank: true, expenseType: true, isPaid: true, date: true },
+    });
+    if (!before) return NextResponse.json({ error: "Não encontrado" }, { status: 404 });
+
     const transaction = await prisma.transaction.update({
-      where: { id, userId: session.user.id },
+      where: { id, userId: uid },
       data: {
         ...data,
         date: data.date ? new Date(data.date) : undefined,
         ...(data.category !== undefined ? { category: (data.category as CategoryKey) ?? null } : {}),
         ...(data.bank !== undefined ? { bank: (data.bank as BankKey) ?? null } : {}),
       },
+    });
+
+    await recordAudit({
+      userId: uid, action: "UPDATE", entity: "transaction", entityId: id,
+      before: { ...before, amount: Number(before.amount) },
+      after: { ...data },
+      ip: ipFromRequest(req),
     });
 
     return NextResponse.json(transaction);
@@ -57,12 +71,25 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   }
 }
 
-export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const session = await getServerSession(authOptions);
   if (!session?.user?.id) return NextResponse.json({ error: "Não autorizado" }, { status: 401 });
 
   const { id } = await params;
-  await prisma.transaction.delete({ where: { id, userId: session.user.id } });
+  const uid = session.user.id;
+  const before = await prisma.transaction.findFirst({
+    where: { id, userId: uid },
+    select: { description: true, amount: true, type: true, category: true, bank: true, expenseType: true, isPaid: true, groupId: true },
+  });
+  const result = await prisma.transaction.deleteMany({ where: { id, userId: uid } });
+  if (result.count === 0) return NextResponse.json({ error: "Não encontrado" }, { status: 404 });
+
+  await recordAudit({
+    userId: uid, action: "DELETE", entity: "transaction", entityId: id,
+    before: before ? { ...before, amount: Number(before.amount) } : null,
+    ip: ipFromRequest(req),
+  });
+
   return new NextResponse(null, { status: 204 });
 }
 

@@ -5,6 +5,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { BANKS } from "@/lib/constants";
 import type { BankKey } from "@/lib/constants";
+import { recordAudit, ipFromRequest } from "@/lib/audit";
 
 const bankKeySchema = z.string().refine((v): v is BankKey => v in BANKS, { message: "Banco inválido" });
 
@@ -46,6 +47,11 @@ export async function POST(req: NextRequest) {
         monthlyAdd: data.monthlyAdd ?? null,
         userId: session.user.id,
       },
+    });
+    await recordAudit({
+      userId: session.user.id, action: "CREATE", entity: "investment", entityId: inv.id,
+      after: { name: data.name, type: data.type, value: data.value, institution: data.institution ?? null },
+      ip: ipFromRequest(req),
     });
     return NextResponse.json(inv, { status: 201 });
   } catch (error) {
