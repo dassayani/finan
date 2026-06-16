@@ -98,6 +98,21 @@ export default function InvestimentosPage() {
   const byType: Record<string, number> = {};
   investments.forEach(i => { byType[i.type] = (byType[i.type] || 0) + Number(i.value); });
   const types = Object.entries(byType).sort((a, b) => b[1] - a[1]);
+
+  // Agrupamento por instituição (banco) — linha de totalizadores por banco
+  const byBankMap: Record<string, { value: number; count: number; aporte: number; weightedReturn: number }> = {};
+  investments.forEach(i => {
+    const key = i.institution ?? "__none__";
+    const b = byBankMap[key] ?? { value: 0, count: 0, aporte: 0, weightedReturn: 0 };
+    b.value += Number(i.value);
+    b.count += 1;
+    b.aporte += Number(i.monthlyAdd ?? 0);
+    b.weightedReturn += Number(i.returnRate ?? 0) * Number(i.value);
+    byBankMap[key] = b;
+  });
+  const byBank = Object.entries(byBankMap)
+    .map(([key, v]) => ({ key, ...v, avgReturn: v.value > 0 ? v.weightedReturn / v.value : 0 }))
+    .sort((a, b) => b.value - a.value);
   let acc = 0;
   const stops = types.map(([k, v]) => { const s = (acc / total) * 360; acc += v; return `${TYPE_COLORS[k] ?? "#6b7280"} ${s}deg ${(acc / total) * 360}deg`; }).join(", ");
   const totalK = total.toLocaleString("pt-BR", { minimumFractionDigits: 0, maximumFractionDigits: 0 });
@@ -131,6 +146,44 @@ export default function InvestimentosPage() {
             <button className="btn btn-primary" style={{ marginTop: 16 }} onClick={() => setShowNew(true)}><OrcaIcon name="plus" size={15} />Adicionar ativo</button>
           </div>
         ) : (
+          <>
+          {/* Totalizadores por instituição (banco) */}
+          <div className="card" style={{ marginBottom: 18, overflow: "hidden" }}>
+            <div style={{ padding: "12px 18px 8px", borderBottom: "1px solid var(--line-2)" }}>
+              <div className="section-label">Por instituição</div>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 0 }}>
+              {byBank.map((b, idx) => {
+                const isNone = b.key === "__none__";
+                const name = isNone ? "Sem banco" : (BANKS[b.key as BankKey]?.name ?? b.key);
+                const pct  = total > 0 ? Math.round((b.value / total) * 100) : 0;
+                return (
+                  <div key={b.key} style={{ padding: "12px 16px", borderRight: (idx + 1) % 4 !== 0 ? "1px solid var(--line-2)" : "none", borderBottom: "1px solid var(--line-2)" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+                      {isNone
+                        ? <div style={{ width: 28, height: 28, borderRadius: 8, background: "var(--surface-3)", display: "grid", placeItems: "center", flex: "0 0 auto" }}><OrcaIcon name="coins" size={14} style={{ color: "var(--ink-3)" }} /></div>
+                        : <BankBadge id={b.key as BankKey} size={28} />}
+                      <div style={{ minWidth: 0, flex: 1 }}>
+                        <div style={{ fontSize: 13, fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{name}</div>
+                        <div className="row-meta" style={{ fontSize: 10.5 }}>{b.count} ativo{b.count > 1 ? "s" : ""} · {pct}% do patrimônio</div>
+                      </div>
+                      {b.avgReturn > 0 && (
+                        <span className="chip" style={{ background: "var(--pos-soft)", color: "var(--pos)", flexShrink: 0 }}><OrcaIcon name="trend" size={11} />{(b.avgReturn * 100).toFixed(1)}%</span>
+                      )}
+                    </div>
+                    <div className="bar" style={{ marginBottom: 6 }}>
+                      <span style={{ width: `${pct}%`, background: "var(--accent)" }} />
+                    </div>
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11.5, fontWeight: 700 }}>
+                      <span className="num">{formatBRL(b.value)}</span>
+                      {b.aporte > 0 && <span className="num muted">{formatBRL(b.aporte)}/mês</span>}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
           <div className="r-grid-sidebar" style={{ gap: 16 }}>
             <div className="card card-pad">
               <div className="section-label" style={{ marginBottom: 16 }}>Alocação por classe</div>
@@ -170,6 +223,7 @@ export default function InvestimentosPage() {
               ))}
             </div>
           </div>
+          </>
         )}
       </div>
       <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
