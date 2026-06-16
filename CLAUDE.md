@@ -188,9 +188,11 @@ Use `categoriesFor('income')` ou `categoriesFor('expense')` para obter a lista f
 ## Prisma 7 — diferenças importantes
 
 - Usa driver adapter `PrismaPg` de `@prisma/adapter-pg`
-- `prisma.ts` conecta com `DIRECT_URL ?? DATABASE_URL` — o adapter pg não suporta pgbouncer (6543)
+- `prisma.ts` conecta com `DATABASE_URL_RUNTIME ?? DIRECT_URL ?? DATABASE_URL`. Hoje cai em `DIRECT_URL` (session mode, 5432) porque o adapter pg não fala pgbouncer transaction mode (6543). **Para escalar:** apontar `DATABASE_URL_RUNTIME` ao pooler do Supabase e deixar `DIRECT_URL` só para migrations (ver comentário em `prisma.ts`)
+- Singleton de `PrismaClient` é reaproveitado **inclusive em produção** (evita multiplicar conexões)
 - `prisma.config.ts` usa `DIRECT_URL` para migrations (session mode, porta 5432)
 - Sem `DATABASE_URL` no schema — URL vai no adapter via env
+- **`CRON_SECRET`** — protege `/api/cron/reconciliation`; defina na Vercel para o cron diário funcionar
 - **Não** use `db.Decimal` no frontend — converta para `number` na API
 - **Não** crie migration sem revisar o schema inteiro — há cascades em User → todos os modelos
 
@@ -226,6 +228,18 @@ O app mantém **dois ledgers paralelos**: `Transaction` (orçamento/dashboard/ca
 - Tipos de divergência: `ORPHAN_MIRROR` (espelho sem transação), `AMOUNT_MISMATCH`, `PAID_DESYNC`.
 - `?month=&year=` opcional. Use para alerta/monitoramento — o invariante é "os dois ledgers mostram o mesmo número".
 - **SSOT atual:** `Transaction` = verdade do orçamento; `BankEntry` = verdade do saldo. Enquanto forem dois ledgers, a reconciliação é o que garante que não divergem. Migrar para fonte única é um trabalho futuro deliberadamente não feito (reescrita).
+
+### `/api/cron/reconciliation` — job automático (Nível 5)
+
+- Varre **todos** os usuários, reconcilia e registra um `AuditLog` `RECONCILE_ALERT` por usuário com divergência.
+- Protegido por **`CRON_SECRET`** (header `Authorization: Bearer <CRON_SECRET>`). Sem env definida → **fail closed** (401).
+- Agendado em `vercel.json` (`0 6 * * *`, diário 6h). Read-only.
+
+### Auditoria — `AuditLog` (Nível 7)
+
+- Toda mutação financeira-chave registra quem/quando/antes/depois/IP: `credits` POST/PUT/DELETE e `transactions` PATCH (PAY/UNPAY).
+- Helper `recordAudit()` em `src/lib/audit.ts` é **best-effort e não-bloqueante** — roda DEPOIS do commit, com try/catch que nunca propaga. Se a tabela `audit_logs` ainda não existir, a operação financeira **não** quebra.
+- Tabela append-only, **sem cascade** com User (histórico sobrevive à exclusão).
 
 ### `/api/transactions`
 
@@ -402,6 +416,8 @@ Ver caminhos disponíveis em `src/components/ui/orca-icon.tsx`.
 | rate-limit.ts | ✅ unit (6 testes) |
 | finance/reconcile.ts (reconciliação dos 2 ledgers) | ✅ unit (11 testes) |
 | Fluxo financeiro E2E (criar→pagar→estornar→excluir) | ✅ integração (2 testes) |
+| cron/reconciliation (auth + alerta de divergência) | ✅ integração (5 testes) |
+| auditoria (CREATE/PAY via recordAudit) | ✅ coberto nos testes de credits/flow |
 | transactions GET / DELETE / PATCH | ❌ sem testes |
 | salary, bonus | ❌ sem testes |
 | subscriptions | ❌ sem testes |

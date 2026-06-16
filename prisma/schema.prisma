@@ -398,3 +398,22 @@ model LoanPayment {
   @@unique([loanId, month, year])
   @@map("loan_payments")
 }
+
+// Trilha de auditoria append-only (Nível 7). Propositalmente SEM relação/cascade
+// com User: o histórico sobrevive à exclusão do usuário. userId é o limite de
+// tenant. Escrita best-effort (ver src/lib/audit.ts) — nunca bloqueia a operação.
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  action    String   // CREATE | UPDATE | DELETE | PAY | UNPAY | RECONCILE_ALERT
+  entity    String   // credit | transaction | reconciliation
+  entityId  String?  @map("entity_id")
+  before    Json?
+  after     Json?
+  ip        String?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([userId, createdAt])
+  @@index([entity, entityId])
+  @@map("audit_logs")
+}

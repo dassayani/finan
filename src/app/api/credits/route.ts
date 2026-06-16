@@ -7,6 +7,7 @@ import { BANKS, CATEGORIES } from "@/lib/constants";
 import type { BankKey, CategoryKey } from "@/lib/constants";
 import type { Prisma } from "@prisma/client";
 import { buildCreditMirrorData } from "@/lib/finance/mirror";
+import { recordAudit, ipFromRequest } from "@/lib/audit";
 
 const bankKeySchema = z.string().refine((v): v is BankKey => v in BANKS, { message: "Banco inválido" });
 const categoryKeySchema = z.string().refine((v): v is CategoryKey => v in CATEGORIES, { message: "Categoria inválida" });
@@ -120,6 +121,13 @@ export async function POST(req: NextRequest) {
         }
       }
       return ids;
+    });
+
+    // Auditoria best-effort, fora da transação principal (ver lib/audit.ts).
+    await recordAudit({
+      userId: uid, action: "CREATE", entity: "credit", entityId: created[0] ?? null,
+      after: { description: data.description, amount: data.amount, date: data.date, bank, customBankId, count: created.length },
+      ip: ipFromRequest(req),
     });
 
     return NextResponse.json({ ids: created, count: created.length }, { status: 201 });

@@ -61,6 +61,7 @@ const { prismaMock, getServerSessionMock } = vi.hoisted(() => {
     subscriptionMember: { findFirst: vi.fn() },
     subscriptionPayment: { upsert: vi.fn(), deleteMany: vi.fn() },
     loanPayment: { upsert: vi.fn(), deleteMany: vi.fn() },
+    auditLog: { create: vi.fn() },
     $transaction: vi.fn(async (cb: any) => cb(prismaMock)),
     __txs: txs, __bes: bes, __reset: () => { txs.length = 0; bes.length = 0; seq = 0; },
   };

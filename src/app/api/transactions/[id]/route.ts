@@ -5,6 +5,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { BANKS, CATEGORIES } from "@/lib/constants";
 import type { CategoryKey, BankKey } from "@/lib/constants";
+import { recordAudit, ipFromRequest } from "@/lib/audit";
 
 const bankKeySchema = z.string().refine((value): value is BankKey => value in BANKS, {
   message: "Banco inválido",
@@ -163,6 +164,13 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     });
 
     if (!transaction) return NextResponse.json({ error: "Não encontrado" }, { status: 404 });
+
+    await recordAudit({
+      userId: uid, action: isPaid ? "PAY" : "UNPAY", entity: "transaction", entityId: id,
+      after: { isPaid, amount: Number(transaction.amount), description: transaction.description, groupId: transaction.groupId },
+      ip: ipFromRequest(req),
+    });
+
     return NextResponse.json(transaction);
   } catch (error) {
     console.error("[transactions PATCH]", error);

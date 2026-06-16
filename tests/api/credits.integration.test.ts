@@ -3,9 +3,10 @@ import { NextRequest } from "next/server";
 
 const { prismaMock, getServerSessionMock } = vi.hoisted(() => ({
   prismaMock: {
-    transaction: { create: vi.fn(), updateMany: vi.fn(), deleteMany: vi.fn(), findMany: vi.fn() },
+    transaction: { create: vi.fn(), updateMany: vi.fn(), deleteMany: vi.fn(), findMany: vi.fn(), findFirst: vi.fn() },
     bankEntry:   { create: vi.fn(), deleteMany: vi.fn(), findFirst: vi.fn() },
     customBank:  { findUnique: vi.fn() },
+    auditLog:    { create: vi.fn() },
     $transaction: vi.fn(),
   },
   getServerSessionMock: vi.fn(),
@@ -47,6 +48,15 @@ describe("POST /api/credits — atomic dual-write", () => {
     expect(prismaMock.transaction.create).toHaveBeenCalledTimes(1);
     expect(prismaMock.bankEntry.create).not.toHaveBeenCalled();
     expect(prismaMock.$transaction).toHaveBeenCalled(); // wrapped atomically
+  });
+
+  it("records a CREATE audit entry (best-effort)", async () => {
+    await POST(jsonReq({ description: "Freela", amount: 1500, category: "freelance", date: "2026-06-01" }));
+    expect(prismaMock.auditLog.create).toHaveBeenCalledTimes(1);
+    const data = prismaMock.auditLog.create.mock.calls[0][0].data;
+    expect(data.action).toBe("CREATE");
+    expect(data.entity).toBe("credit");
+    expect(data.userId).toBe("user-1");
   });
 
   it("creates Transaction + mirror BankEntry when a bank is given", async () => {

@@ -7,6 +7,7 @@ import { BANKS, CATEGORIES } from "@/lib/constants";
 import type { BankKey, CategoryKey } from "@/lib/constants";
 import type { Prisma } from "@prisma/client";
 import { buildCreditMirrorData } from "@/lib/finance/mirror";
+import { recordAudit, ipFromRequest } from "@/lib/audit";
 
 const bankKeySchema = z.string().refine((v): v is BankKey => v in BANKS, { message: "Banco inválido" });
 const categoryKeySchema = z.string().refine((v): v is CategoryKey => v in CATEGORIES, { message: "Categoria inválida" });
@@ -39,6 +40,11 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       if (!cb || cb.userId !== uid) return NextResponse.json({ error: "Não autorizado" }, { status: 403 });
     }
 
+    const before = await prisma.transaction.findFirst({
+      where: { id, userId: uid, type: "INCOME" },
+      select: { description: true, amount: true, category: true, bank: true, date: true },
+    });
+
     const result = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       const updated = await tx.transaction.updateMany({
         where: { id, userId: uid, type: "INCOME" },
@@ -70,6 +76,14 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     });
 
     if (!result) return NextResponse.json({ error: "Não encontrado" }, { status: 404 });
+
+    await recordAudit({
+      userId: uid, action: "UPDATE", entity: "credit", entityId: id,
+      before: before ? { ...before, amount: Number(before.amount) } : null,
+      after: { description: data.description, amount: data.amount, category: data.category ?? null, bank, customBankId, date: data.date },
+      ip: ipFromRequest(req),
+    });
+
     return NextResponse.json({ ok: true });
   } catch (error) {
     if (error instanceof z.ZodError) {
@@ -81,15 +95,27 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
 }
 
 /** Exclui a receita e o lançamento bancário espelho atomicamente. */
-export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const session = await getServerSession(authOptions);
   if (!session?.user?.id) return NextResponse.json({ error: "Não autorizado" }, { status: 401 });
   const uid = session.user.id;
 
   const { id } = await params;
+  const before = await prisma.transaction.findFirst({
+    where: { id, userId: uid },
+    select: { description: true, amount: true, category: true, bank: true, date: true, isPaid: true },
+  });
+
   await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
     await tx.transaction.deleteMany({ where: { id, userId: uid } });
     await tx.bankEntry.deleteMany({ where: { userId: uid, groupId: `credit-entry-${id}` } });
   });
+
+  await recordAudit({
+    userId: uid, action: "DELETE", entity: "credit", entityId: id,
+    before: before ? { ...before, amount: Number(before.amount) } : null,
+    ip: ipFromRequest(req),
+  });
+
   return new NextResponse(null, { status: 204 });
 }
