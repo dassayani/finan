@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { BANKS, CATEGORIES } from "@/lib/constants";
 import type { BankKey, CategoryKey } from "@/lib/constants";
 import type { Prisma } from "@prisma/client";
+import { buildCreditMirrorData } from "@/lib/finance/mirror";
 
 const bankKeySchema = z.string().refine((v): v is BankKey => v in BANKS, { message: "Banco inválido" });
 const categoryKeySchema = z.string().refine((v): v is CategoryKey => v in CATEGORIES, { message: "Categoria inválida" });
@@ -21,12 +22,6 @@ const createSchema = z.object({
   customBankId: z.string().nullable().optional(),
   recurring: z.object({ until: z.string().nullable().optional() }).nullable().optional(),
 }).refine(d => !(d.bank && d.customBankId), { message: "Informe apenas bank ou customBankId", path: ["customBankId"] });
-
-/** Deriva {month, year} de uma string YYYY-MM-DD sem day-shift de fuso. */
-function ymOf(dateStr: string): { month: number; year: number } {
-  const [y, m] = dateStr.split("-").map(Number);
-  return { month: m, year: y };
-}
 
 /** Lista de datas mensais de start até until (inclusive), em strings YYYY-MM-DD. */
 function monthlyDates(startStr: string, untilStr: string | null | undefined): string[] {
@@ -114,16 +109,13 @@ export async function POST(req: NextRequest) {
         ids.push(transaction.id);
 
         if (hasBank) {
-          const { month, year } = ymOf(dateStr);
           await tx.bankEntry.create({
-            data: {
-              userId: uid, bank, customBankId,
-              month, year,
-              description: data.description, amount: data.amount,
-              type: "INCOME", category: (data.category as CategoryKey) ?? null,
-              groupId: `credit-entry-${transaction.id}`,
+            data: buildCreditMirrorData({
+              userId: uid, transactionId: transaction.id, bank, customBankId,
+              dateStr, description: data.description, amount: data.amount,
+              category: (data.category as CategoryKey) ?? null,
               isPaid: data.recurring ? i === 0 : (data.isPaid ?? false),
-            },
+            }),
           });
         }
       }

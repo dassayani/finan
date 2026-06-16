@@ -218,6 +218,14 @@ O app mantém **dois ledgers paralelos**: `Transaction` (orçamento/dashboard/ca
 - **PUT `/api/credits/[id]`** atualiza a receita e recria o espelho atomicamente (preserva `isPaid`).
 - **DELETE `/api/credits/[id]`** remove receita + espelho atomicamente.
 - ⚠️ Nunca volte a orquestrar esse dual-write no cliente com fetches separados — gera órfãos em falha parcial.
+- A regra de espelhamento (formato do groupId, derivação de mês/ano) vive em `src/lib/finance/mirror.ts` — **nunca** duplique inline numa rota ou componente.
+
+### `/api/reconciliation` — guarda de consistência (read-only)
+
+- Compara o ledger de `Transaction` com os `BankEntry` espelho e retorna divergências sem alterar dados. Motor puro em `src/lib/finance/reconcile.ts`.
+- Tipos de divergência: `ORPHAN_MIRROR` (espelho sem transação), `AMOUNT_MISMATCH`, `PAID_DESYNC`.
+- `?month=&year=` opcional. Use para alerta/monitoramento — o invariante é "os dois ledgers mostram o mesmo número".
+- **SSOT atual:** `Transaction` = verdade do orçamento; `BankEntry` = verdade do saldo. Enquanto forem dois ledgers, a reconciliação é o que garante que não divergem. Migrar para fonte única é um trabalho futuro deliberadamente não feito (reescrita).
 
 ### `/api/transactions`
 
@@ -392,6 +400,8 @@ Ver caminhos disponíveis em `src/components/ui/orca-icon.tsx`.
 | money.ts (`splitInstallments`, `roundMoney`) | ✅ unit (7 testes) |
 | bank-entry-sync.ts (`manualBankEntryWhere`) | ✅ unit (5 testes) |
 | rate-limit.ts | ✅ unit (6 testes) |
+| finance/reconcile.ts (reconciliação dos 2 ledgers) | ✅ unit (11 testes) |
+| Fluxo financeiro E2E (criar→pagar→estornar→excluir) | ✅ integração (2 testes) |
 | transactions GET / DELETE / PATCH | ❌ sem testes |
 | salary, bonus | ❌ sem testes |
 | subscriptions | ❌ sem testes |

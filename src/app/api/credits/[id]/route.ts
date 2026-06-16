@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { BANKS, CATEGORIES } from "@/lib/constants";
 import type { BankKey, CategoryKey } from "@/lib/constants";
 import type { Prisma } from "@prisma/client";
+import { buildCreditMirrorData } from "@/lib/finance/mirror";
 
 const bankKeySchema = z.string().refine((v): v is BankKey => v in BANKS, { message: "Banco inválido" });
 const categoryKeySchema = z.string().refine((v): v is CategoryKey => v in CATEGORIES, { message: "Categoria inválida" });
@@ -19,11 +20,6 @@ const updateSchema = z.object({
   bank: bankKeySchema.nullable().optional(),
   customBankId: z.string().nullable().optional(),
 }).refine(d => !(d.bank && d.customBankId), { message: "Informe apenas bank ou customBankId", path: ["customBankId"] });
-
-function ymOf(dateStr: string): { month: number; year: number } {
-  const [y, m] = dateStr.split("-").map(Number);
-  return { month: m, year: y };
-}
 
 /** Atualiza a receita e recria o lançamento bancário espelho atomicamente. */
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -61,14 +57,13 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       const existing = await tx.bankEntry.findFirst({ where: { userId: uid, groupId: `credit-entry-${id}` }, select: { isPaid: true } });
       await tx.bankEntry.deleteMany({ where: { userId: uid, groupId: `credit-entry-${id}` } });
       if (hasBank) {
-        const { month, year } = ymOf(data.date);
         await tx.bankEntry.create({
-          data: {
-            userId: uid, bank, customBankId, month, year,
-            description: data.description, amount: data.amount,
-            type: "INCOME", category: (data.category as CategoryKey) ?? null,
-            groupId: `credit-entry-${id}`, isPaid: existing?.isPaid ?? false,
-          },
+          data: buildCreditMirrorData({
+            userId: uid, transactionId: id, bank, customBankId,
+            dateStr: data.date, description: data.description, amount: data.amount,
+            category: (data.category as CategoryKey) ?? null,
+            isPaid: existing?.isPaid ?? false,
+          }),
         });
       }
       return true;
