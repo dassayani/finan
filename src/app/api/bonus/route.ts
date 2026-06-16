@@ -17,9 +17,12 @@ function toBankKey(s: string | null | undefined): BankKey | null {
 // Décimo base = 1300 → Décimo June = 1306, Décimo December = 1312
 const PLR_BASE    = 1400;
 const DECIMO_BASE = 1300;
+const FERIAS_BASE = 1200;
 
-function encodeMonth(type: "plr" | "decimo", payMonth: number): number {
-  return (type === "plr" ? PLR_BASE : DECIMO_BASE) + payMonth;
+function encodeMonth(type: "plr" | "decimo" | "ferias", payMonth: number): number {
+  if (type === "plr")    return PLR_BASE    + payMonth;
+  if (type === "decimo") return DECIMO_BASE + payMonth;
+  return FERIAS_BASE + payMonth;
 }
 
 const itemSchema = z.object({
@@ -30,7 +33,7 @@ const itemSchema = z.object({
 });
 
 const bonusSchema = z.object({
-  type: z.enum(["plr", "decimo"]),
+  type: z.enum(["plr", "decimo", "ferias"]),
   year: z.number().int().min(2000),
   payDate: z.string(),
   baseAmount: z.number(),
@@ -49,14 +52,18 @@ export async function GET(req: NextRequest) {
   const year  = Number(searchParams.get("year")  ?? new Date().getFullYear());
   const month = searchParams.get("month") ? Number(searchParams.get("month")) : null;
 
-  // Fetch all PLR and Décimo entries for the year
-  const [allPlr, allDecimo] = await Promise.all([
+  // Fetch all PLR, Décimo e Férias entries for the year
+  const [allPlr, allDecimo, allFerias] = await Promise.all([
     prisma.salary.findMany({
       where: { userId: session.user.id, year, month: { gte: PLR_BASE + 1, lte: PLR_BASE + 12 } },
       include: { items: { orderBy: { order: "asc" } } },
     }),
     prisma.salary.findMany({
       where: { userId: session.user.id, year, month: { gte: DECIMO_BASE + 1, lte: DECIMO_BASE + 12 } },
+      include: { items: { orderBy: { order: "asc" } } },
+    }),
+    prisma.salary.findMany({
+      where: { userId: session.user.id, year, month: { gte: FERIAS_BASE + 1, lte: FERIAS_BASE + 12 } },
       include: { items: { orderBy: { order: "asc" } } },
     }),
   ]);
@@ -67,7 +74,7 @@ export async function GET(req: NextRequest) {
     return entries.find(e => (e.month % 100) === month) ?? null;
   };
 
-  return NextResponse.json({ plr: filterByMonth(allPlr), decimo: filterByMonth(allDecimo) });
+  return NextResponse.json({ plr: filterByMonth(allPlr), decimo: filterByMonth(allDecimo), ferias: filterByMonth(allFerias) });
 }
 
 export async function POST(req: NextRequest) {
@@ -80,9 +87,18 @@ export async function POST(req: NextRequest) {
 
     const bankKey      = toBankKey(bankField);
     const customBankId = customBankIdField ?? null;
+
+    // Ownership do banco customizado — impede referenciar banco de outro usuário
+    if (customBankId) {
+      const cb = await prisma.customBank.findUnique({ where: { id: customBankId }, select: { userId: true } });
+      if (!cb || cb.userId !== session.user.id) {
+        return NextResponse.json({ error: "Não autorizado" }, { status: 403 });
+      }
+    }
+
     const payMonth     = new Date(payDate).getUTCMonth() + 1;
     const salaryMonth  = encodeMonth(type, payMonth);
-    const label        = type === "plr" ? "PLR" : "Décimo Terceiro";
+    const label        = type === "plr" ? "PLR" : type === "decimo" ? "Décimo Terceiro" : "Férias";
     const groupId      = `bonus-${type}-${data.year}-${payMonth}-${session.user.id}`;
     const entryGroupId = `bonus-entry-${type}-${data.year}-${payMonth}-${session.user.id}`;
 
@@ -162,7 +178,7 @@ export async function DELETE(req: NextRequest) {
   if (!session?.user?.id) return NextResponse.json({ error: "Não autorizado" }, { status: 401 });
 
   const { searchParams } = new URL(req.url);
-  const type     = searchParams.get("type") as "plr" | "decimo" | null;
+  const type     = searchParams.get("type") as "plr" | "decimo" | "ferias" | null;
   const year     = Number(searchParams.get("year"));
   const payMonth = Number(searchParams.get("payMonth"));
 

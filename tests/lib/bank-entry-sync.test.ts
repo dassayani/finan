@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   MIRROR_GROUP_PREFIXES,
   isMirrorGroupId,
+  isTransferGroupId,
   manualBankEntryWhere,
 } from "@/lib/bank-entry-sync";
 
@@ -29,6 +30,25 @@ describe("isMirrorGroupId", () => {
     for (const prefix of MIRROR_GROUP_PREFIXES) {
       expect(isMirrorGroupId(`${prefix}whatever`)).toBe(true);
     }
+  });
+});
+
+describe("isTransferGroupId", () => {
+  it("returns false for null/undefined/empty", () => {
+    expect(isTransferGroupId(null)).toBe(false);
+    expect(isTransferGroupId(undefined)).toBe(false);
+    expect(isTransferGroupId("")).toBe(false);
+  });
+
+  it("flags transfer- groupIds", () => {
+    expect(isTransferGroupId("transfer-1700000000000-abcdef")).toBe(true);
+  });
+
+  it("does not confuse transfers with mirrors or manual entries", () => {
+    expect(isTransferGroupId("credit-entry-abc")).toBe(false);
+    expect(isTransferGroupId("recur-123")).toBe(false);
+    // transfers are NOT mirror groupIds — they must not be filtered as mirrors
+    expect(isMirrorGroupId("transfer-1700000000000-abcdef")).toBe(false);
   });
 });
 

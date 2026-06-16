@@ -62,6 +62,9 @@ interface SalaryResponse {
   effective: Salary | null;
   source: "month" | "prev" | "template" | null;
   bankEntry: SalaryBankEntry | null;
+  contractEnded: boolean;
+  contractEndMonth: number | null;
+  contractEndYear: number | null;
 }
 
 interface Credit {
@@ -103,6 +106,17 @@ const BONUS_DEFAULTS = {
       { name: "Desconto adiantamento da parcela", amount: 0, type: "DESCONTO" as const },
     ],
   },
+  ferias: {
+    label: "Férias",
+    proventos: [
+      { name: "Férias", amount: 0, type: "PROVENTO" as const },
+      { name: "1/3 Constitucional", amount: 0, type: "PROVENTO" as const },
+    ],
+    descontos: [
+      { name: "INSS", amount: 0, type: "DESCONTO" as const },
+      { name: "IRRF", amount: 0, type: "DESCONTO" as const },
+    ],
+  },
 } as const;
 
 type BonusType = keyof typeof BONUS_DEFAULTS;
@@ -139,6 +153,8 @@ const BANK_IDS = Object.keys(BANKS) as BankKey[];
 
 const MONTH_NAMES = ["Janeiro","Fevereiro","Março","Abril","Maio","Junho","Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"];
 const BANK_YEARS = Array.from({ length: 10 }, (_, i) => new Date().getFullYear() - i);
+// Para encerramento de contrato: anos de hoje até +5 anos
+const CONTRACT_END_YEARS = Array.from({ length: 7 }, (_, i) => new Date().getFullYear() - 1 + i);
 
 function SalaryForm({
   initial,
@@ -428,6 +444,7 @@ function BonusForm({ bonusType: initialType, year, month, initial, onSave, onCan
           <div className="seg" style={{ width: "100%" }}>
             <button style={{ flex: 1 }} className={bonusType === "plr" ? "on" : ""} onClick={() => handleTypeChange("plr")}>PLR</button>
             <button style={{ flex: 1 }} className={bonusType === "decimo" ? "on" : ""} onClick={() => handleTypeChange("decimo")}>Décimo Terceiro</button>
+            <button style={{ flex: 1 }} className={bonusType === "ferias" ? "on" : ""} onClick={() => handleTypeChange("ferias")}>Férias</button>
           </div>
         </div>
       )}
@@ -598,24 +615,30 @@ function Holerite({
   month,
   year,
   isPaid,
+  contractEndMonth,
+  contractEndYear,
   onEditMonth,
   onEditTemplate,
   onResetMonth,
   onConfirmMonth,
   onAddBonus,
   onTogglePaid,
+  onEndContract,
 }: {
   salary: Salary;
   source: "month" | "prev" | "template" | null;
   month: number;
   year: number;
   isPaid: boolean;
+  contractEndMonth: number | null;
+  contractEndYear: number | null;
   onEditMonth: () => void;
   onEditTemplate: () => void;
   onResetMonth: () => void;
   onConfirmMonth: () => void;
   onAddBonus: () => void;
   onTogglePaid: () => void;
+  onEndContract: () => void;
 }) {
   const proventos = salary.items.filter(i => i.type === "PROVENTO");
   const descontos = salary.items.filter(i => i.type === "DESCONTO");
@@ -696,7 +719,7 @@ function Holerite({
         </div>
       </div>
 
-      {/* Actions — order: Editar modelo base | Editar este mês | Outros recebimentos | Remover Salário deste mês */}
+      {/* Actions */}
       <div style={{ display: "flex", gap: 8, padding: "12px 20px", borderTop: "1px solid var(--line-2)", flexWrap: "wrap" }}>
         <button className="btn btn-ghost" style={{ fontSize: 12, padding: "6px 12px" }} onClick={onEditTemplate}>
           <OrcaIcon name="repeat" size={13} />Editar modelo base
@@ -710,6 +733,18 @@ function Holerite({
         {source === "month" && (
           <button className="btn btn-ghost" style={{ fontSize: 12, padding: "6px 12px", color: "var(--neg)" }} onClick={onResetMonth}>
             <OrcaIcon name="trash" size={13} />Remover Salário deste mês
+          </button>
+        )}
+        {contractEndMonth && contractEndYear ? (
+          <button className="btn btn-ghost" style={{ fontSize: 12, padding: "6px 12px", color: "var(--pos)" }} onClick={onEndContract}>
+            <OrcaIcon name="check" size={13} />Reativar contrato
+            <span className="muted" style={{ marginLeft: 4, fontWeight: 400 }}>
+              (encerrado {MONTH_NAMES[contractEndMonth - 1]}/{contractEndYear})
+            </span>
+          </button>
+        ) : (
+          <button className="btn btn-ghost" style={{ fontSize: 12, padding: "6px 12px", color: "var(--warn)" }} onClick={onEndContract}>
+            <OrcaIcon name="close" size={13} />Encerrar contrato CLT
           </button>
         )}
       </div>
@@ -840,11 +875,19 @@ export default function CreditosPage() {
   const [showMenu, setShowMenu] = useState(false);
   const [savingCredit, setSavingCredit] = useState(false);
 
-  // Bonus (PLR / Décimo Terceiro) state
+  // Bonus (PLR / Décimo Terceiro / Férias) state
   const [bonusPlr,    setBonusPlr]    = useState<BonusEntry | null>(null);
   const [bonusDecimo, setBonusDecimo] = useState<BonusEntry | null>(null);
+  const [bonusFerias, setBonusFerias] = useState<BonusEntry | null>(null);
   const [showBonusForm, setShowBonusForm] = useState<BonusType | null>(null);
   const [savingBonus,   setSavingBonus]   = useState(false);
+
+  // Menu dots de exclusão nos "Outros recebimentos"
+  const [openDotsId, setOpenDotsId] = useState<string | null>(null);
+
+  // Contrato CLT
+  const [showContractEndModal, setShowContractEndModal] = useState(false);
+  const [contractEndForm, setContractEndForm] = useState({ month: String(new Date().getMonth() + 1), year: String(new Date().getFullYear()) });
 
   const fetchSalary = useCallback(async () => {
     try {
@@ -875,6 +918,7 @@ export default function CreditosPage() {
       const data = await res.json();
       setBonusPlr(data.plr ?? null);
       setBonusDecimo(data.decimo ?? null);
+      setBonusFerias(data.ferias ?? null);
     } catch { /* ignore */ }
   }, [year, month]);
 
@@ -982,6 +1026,12 @@ export default function CreditosPage() {
     fetchCredits();
   }
 
+  async function handleDeleteCreditGroup(groupId: string, desc: string) {
+    if (!confirm(`Excluir todos os lançamentos recorrentes de "${desc}"?`)) return;
+    await fetch(`/api/credits?groupId=${encodeURIComponent(groupId)}`, { method: "DELETE" });
+    fetchCredits();
+  }
+
   async function handleSaveBonus(data: Record<string, unknown>) {
     setSavingBonus(true);
     try {
@@ -1014,6 +1064,22 @@ export default function CreditosPage() {
     if (!res.ok) setCredits(prev => prev.map(c => c.id === id ? { ...c, isPaid: credit.isPaid } : c));
   }
 
+  async function handleSaveContractEnd(endMonth: number | null, endYear: number | null) {
+    const effective = salaryData?.effective ?? salaryData?.template;
+    if (!effective) return;
+    await handleSaveSalary({
+      month: 0, year: 0,
+      baseAmount: Number(effective.baseAmount),
+      netAmount: Number(effective.netAmount),
+      payDay: effective.payDay,
+      notes: effective.notes,
+      contractEndMonth: endMonth,
+      contractEndYear: endYear,
+      items: effective.items.map((it, i) => ({ name: it.name, amount: Number(it.amount), type: it.type, order: i })),
+    });
+    setShowContractEndModal(false);
+  }
+
   async function handleDeleteBonus(type: BonusType) {
     if (!confirm(`Remover lançamento de ${BONUS_DEFAULTS[type].label} em ${monthCap}?`)) return;
     await fetch(`/api/bonus?type=${type}&year=${year}&payMonth=${month}`, { method: "DELETE" });
@@ -1024,9 +1090,10 @@ export default function CreditosPage() {
   const salaryCredit = credits.find(c => c.groupId?.startsWith("salary-"));
   const plrCredit    = credits.find(c => c.groupId?.startsWith("bonus-plr-"));
   const decimoCredit = credits.find(c => c.groupId?.startsWith("bonus-decimo-"));
+  const feriasCredit = credits.find(c => c.groupId?.startsWith("bonus-ferias-"));
 
   const salaryNet    = salaryData?.effective ? Number(salaryData.effective.netAmount) : 0;
-  const bonusTotal   = (bonusPlr ? Number(bonusPlr.netAmount) : 0) + (bonusDecimo ? Number(bonusDecimo.netAmount) : 0);
+  const bonusTotal   = (bonusPlr ? Number(bonusPlr.netAmount) : 0) + (bonusDecimo ? Number(bonusDecimo.netAmount) : 0) + (bonusFerias ? Number(bonusFerias.netAmount) : 0);
   const otherCredits = credits.filter(c => {
     if (!c.groupId) return true;
     if (c.groupId.startsWith("salary-")) return false;
@@ -1047,13 +1114,33 @@ export default function CreditosPage() {
   function nextMonth() { if (month === 12) { setMonth(1); setYear(y => y + 1); } else setMonth(m => m + 1); }
 
   const hasAnyData = !!(
-    salaryData?.effective || bonusPlr || bonusDecimo || otherCredits.length > 0
+    salaryData?.effective || bonusPlr || bonusDecimo || bonusFerias || otherCredits.length > 0
   );
 
   const creditModalTitle =
     showNewReceita === "servicos" ? "Lançar Serviços" :
     showNewReceita === "empresa"  ? "Lançar Empresa"  :
     "Outras Receitas";
+
+  const contractEndedBanner = salaryData?.contractEnded && (
+    <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "14px 18px", background: "var(--warn-soft)", border: "1px solid var(--warn)", borderRadius: "var(--r-md)", marginBottom: 16 }}>
+      <OrcaIcon name="close" size={18} style={{ color: "var(--warn)", flex: "0 0 auto" }} />
+      <div style={{ flex: 1 }}>
+        <div style={{ fontWeight: 700, fontSize: 13.5, color: "var(--warn)" }}>Contrato CLT encerrado</div>
+        <div style={{ fontSize: 12.5, color: "var(--ink-2)", marginTop: 2 }}>
+          Este mês é posterior ao encerramento em {MONTH_NAMES[(salaryData.contractEndMonth ?? 1) - 1]}/{salaryData.contractEndYear}.
+          O holerite não é projetado a partir daqui.
+        </div>
+      </div>
+      <button className="btn btn-ghost" style={{ fontSize: 12 }}
+        onClick={() => {
+          setContractEndForm({ month: String(salaryData.contractEndMonth ?? month), year: String(salaryData.contractEndYear ?? year) });
+          setShowContractEndModal(true);
+        }}>
+        Reativar
+      </button>
+    </div>
+  );
 
   return (
     <>
@@ -1098,12 +1185,61 @@ export default function CreditosPage() {
           <BonusForm
             bonusType={showBonusForm}
             year={year} month={month}
-            initial={showBonusForm === "plr" ? bonusPlr : bonusDecimo}
+            initial={showBonusForm === "plr" ? bonusPlr : showBonusForm === "decimo" ? bonusDecimo : bonusFerias}
             onSave={handleSaveBonus}
             onCancel={() => setShowBonusForm(null)}
             loading={savingBonus}
             customBanks={customBanks}
           />
+        )}
+      </Modal>
+
+      {/* Modal encerrar contrato */}
+      <Modal
+        open={showContractEndModal}
+        onClose={() => setShowContractEndModal(false)}
+        title={salaryData?.contractEndMonth ? "Reativar contrato CLT" : "Encerrar contrato CLT"}
+        width={380}
+      >
+        {salaryData?.contractEndMonth ? (
+          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+            <div style={{ padding: "12px 14px", background: "var(--warn-soft)", borderRadius: "var(--r-md)", fontSize: 13, color: "var(--warn)", fontWeight: 600 }}>
+              Contrato encerrado em {MONTH_NAMES[(salaryData.contractEndMonth ?? 1) - 1]}/{salaryData.contractEndYear}. Reativar irá projetar o salário novamente para todos os meses.
+            </div>
+            <div style={{ display: "flex", gap: 10 }}>
+              <button className="btn btn-ghost" style={{ flex: 1 }} onClick={() => setShowContractEndModal(false)}>Cancelar</button>
+              <button className="btn btn-primary" style={{ flex: 1 }} onClick={() => handleSaveContractEnd(null, null)}>
+                <OrcaIcon name="check" size={15} />Reativar contrato
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+            <div style={{ fontSize: 13, color: "var(--ink-2)", lineHeight: 1.6 }}>
+              A partir de qual mês o salário CLT será encerrado? Meses posteriores não mostrarão o holerite.
+            </div>
+            <div className="field-row-2">
+              <div className="field">
+                <label>Último mês</label>
+                <select className="orça-input" value={contractEndForm.month} onChange={e => setContractEndForm(f => ({ ...f, month: e.target.value }))}>
+                  {MONTH_NAMES.map((m, i) => <option key={i + 1} value={String(i + 1)}>{m}</option>)}
+                </select>
+              </div>
+              <div className="field">
+                <label>Ano</label>
+                <select className="orça-input" value={contractEndForm.year} onChange={e => setContractEndForm(f => ({ ...f, year: e.target.value }))}>
+                  {CONTRACT_END_YEARS.map(y => <option key={y} value={String(y)}>{y}</option>)}
+                </select>
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 10 }}>
+              <button className="btn btn-ghost" style={{ flex: 1 }} onClick={() => setShowContractEndModal(false)}>Cancelar</button>
+              <button className="btn btn-primary" style={{ flex: 1, background: "var(--warn)", borderColor: "var(--warn)" }}
+                onClick={() => handleSaveContractEnd(Number(contractEndForm.month), Number(contractEndForm.year))}>
+                <OrcaIcon name="check" size={15} />Confirmar encerramento
+              </button>
+            </div>
+          </div>
         )}
       </Modal>
 
@@ -1189,7 +1325,7 @@ export default function CreditosPage() {
               {grandTotal > 0 ? formatBRL(grandTotal) : "—"}
             </div>
             <div className="kpi-delta muted">
-              {salaryData?.effective ? "salário + " : ""}{otherCredits.length + (bonusPlr ? 1 : 0) + (bonusDecimo ? 1 : 0)} lançamentos
+              {salaryData?.effective ? "salário + " : ""}{otherCredits.length + (bonusPlr ? 1 : 0) + (bonusDecimo ? 1 : 0) + (bonusFerias ? 1 : 0)} lançamentos
             </div>
           </div>
           <div className="card kpi">
@@ -1198,13 +1334,13 @@ export default function CreditosPage() {
               {(othersTotal + bonusTotal) > 0 ? formatBRL(othersTotal + bonusTotal) : "—"}
             </div>
             <div className="kpi-delta muted">
-              {otherCredits.length + (bonusPlr ? 1 : 0) + (bonusDecimo ? 1 : 0)} lançamentos
+              {otherCredits.length + (bonusPlr ? 1 : 0) + (bonusDecimo ? 1 : 0) + (bonusFerias ? 1 : 0)} lançamentos
             </div>
           </div>
         </div>
 
         {/* Conteúdo — só aparece quando há dados */}
-        {hasAnyData ? (() => {
+        {(hasAnyData || salaryData?.contractEnded) ? (() => {
           const hasSalary = !!salaryData?.effective;
           const rightCol = (
             <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
@@ -1222,6 +1358,13 @@ export default function CreditosPage() {
                   onDelete={() => handleDeleteBonus("decimo")}
                   onTogglePaid={() => decimoCredit && handleTogglePaid(decimoCredit.id)} />
               )}
+              {bonusFerias && (
+                <BonusDisplay entry={bonusFerias} bonusType="ferias"
+                  isPaid={feriasCredit?.isPaid ?? false}
+                  onEdit={() => setShowBonusForm("ferias")}
+                  onDelete={() => handleDeleteBonus("ferias")}
+                  onTogglePaid={() => feriasCredit && handleTogglePaid(feriasCredit.id)} />
+              )}
 
               {otherCredits.length > 0 && (
                 <div className="card">
@@ -1235,12 +1378,17 @@ export default function CreditosPage() {
                   ) : (
                     otherCredits.map(c => {
                       const cat = c.category ? CATEGORIES[c.category as CategoryKey] : null;
+                      const isRecurring = c.groupId?.startsWith("recur-");
+                      const dotsOpen = openDotsId === c.id;
                       return (
-                        <div className="row" key={c.id}>
+                        <div className="row" key={c.id} style={{ position: "relative" }}>
                           <div className="row-l">
                             <span style={{ width: 9, height: 9, borderRadius: "50%", background: cat?.color ?? "var(--pos)", flex: "0 0 auto" }} />
                             <div>
-                              <div className="row-name">{c.description}</div>
+                              <div className="row-name">
+                                {c.description}
+                                {isRecurring && <span className="chip" style={{ marginLeft: 6, fontSize: 10, background: "var(--accent-soft)", color: "var(--accent)" }}>recorrente</span>}
+                              </div>
                               <div className="row-meta">{cat?.label ?? "Receita"} · {new Date(c.date).toLocaleDateString("pt-BR")}</div>
                             </div>
                           </div>
@@ -1248,7 +1396,37 @@ export default function CreditosPage() {
                             <PayToggle paid={c.isPaid} onToggle={() => handleTogglePaid(c.id)} label={{ paid: "Recebido", pending: "A receber" }} />
                             <span className="amt pos num">{formatBRL(Number(c.amount), { sign: true })}</span>
                             <button onClick={() => setEditCredit(c)} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--ink-3)", padding: 4, borderRadius: 6 }}><OrcaIcon name="edit" size={14} /></button>
-                            <button onClick={() => handleDeleteCredit(c.id, c.description)} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--neg)", padding: 4, borderRadius: 6 }}><OrcaIcon name="trash" size={14} /></button>
+                            {isRecurring ? (
+                              <div style={{ position: "relative" }}>
+                                <button
+                                  onClick={() => setOpenDotsId(dotsOpen ? null : c.id)}
+                                  style={{ background: "none", border: "none", cursor: "pointer", color: dotsOpen ? "var(--neg)" : "var(--ink-3)", padding: 4, borderRadius: 6 }}
+                                >
+                                  <OrcaIcon name="dots" size={14} />
+                                </button>
+                                {dotsOpen && (
+                                  <>
+                                    <div style={{ position: "fixed", inset: 0, zIndex: 9 }} onClick={() => setOpenDotsId(null)} />
+                                    <div style={{ position: "absolute", right: 0, top: "calc(100% + 4px)", zIndex: 10, background: "var(--surface)", border: "1px solid var(--line)", borderRadius: "var(--r-md)", boxShadow: "var(--shadow-md)", minWidth: 200, overflow: "hidden" }}>
+                                      <button
+                                        onClick={() => { setOpenDotsId(null); handleDeleteCredit(c.id, c.description); }}
+                                        style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "10px 14px", background: "none", border: "none", cursor: "pointer", fontSize: 13, color: "var(--neg)", textAlign: "left" }}
+                                      >
+                                        <OrcaIcon name="trash" size={13} />Excluir este mês
+                                      </button>
+                                      <button
+                                        onClick={() => { setOpenDotsId(null); handleDeleteCreditGroup(c.groupId!, c.description); }}
+                                        style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "10px 14px", background: "none", border: "none", cursor: "pointer", fontSize: 13, color: "var(--neg)", textAlign: "left", borderTop: "1px solid var(--line-2)" }}
+                                      >
+                                        <OrcaIcon name="trash" size={13} />Excluir todos os meses
+                                      </button>
+                                    </div>
+                                  </>
+                                )}
+                              </div>
+                            ) : (
+                              <button onClick={() => handleDeleteCredit(c.id, c.description)} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--neg)", padding: 4, borderRadius: 6 }}><OrcaIcon name="trash" size={14} /></button>
+                            )}
                           </div>
                         </div>
                       );
@@ -1282,21 +1460,28 @@ export default function CreditosPage() {
                   source={salaryData!.source}
                   month={month} year={year}
                   isPaid={salaryCredit?.isPaid ?? false}
+                  contractEndMonth={salaryData!.contractEndMonth ?? null}
+                  contractEndYear={salaryData!.contractEndYear ?? null}
                   onEditMonth={() => setShowSalaryMonth(true)}
                   onEditTemplate={() => setShowSalaryTemplate(true)}
                   onResetMonth={handleResetMonth}
                   onConfirmMonth={handleConfirmMonth}
-                  onAddBonus={() => setShowBonusForm(!bonusPlr ? "plr" : !bonusDecimo ? "decimo" : "plr")}
+                  onAddBonus={() => setShowBonusForm(!bonusPlr ? "plr" : !bonusDecimo ? "decimo" : !bonusFerias ? "ferias" : "plr")}
                   onTogglePaid={() => salaryCredit && handleTogglePaid(salaryCredit.id)}
+                  onEndContract={() => {
+                    setContractEndForm({ month: String(month), year: String(year) });
+                    setShowContractEndModal(true);
+                  }}
                 />
                 {rightCol}
               </div>
             );
           }
 
-          // Sem holerite: coluna única
+          // Sem holerite: coluna única (inclui banner de contrato encerrado)
           return (
             <div style={{ display: "flex", flexDirection: "column", gap: 16, marginTop: 24 }}>
+              {contractEndedBanner}
               {rightCol}
             </div>
           );

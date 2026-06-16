@@ -11,6 +11,7 @@ const NAV_GROUPS = [
     label: "Visão Geral",
     items: [
       { href: "/dashboard", label: "Dashboard", icon: "dashboard" },
+      { href: "/auditoria", label: "Auditoria", icon: "book" },
     ],
   },
   {

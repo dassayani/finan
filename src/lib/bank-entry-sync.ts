@@ -27,6 +27,11 @@ export function isMirrorGroupId(groupId: string | null | undefined): boolean {
   return MIRROR_GROUP_PREFIXES.some(p => groupId.startsWith(p));
 }
 
+/** True se o groupId identifica os dois lados de uma transferência entre bancos. */
+export function isTransferGroupId(groupId: string | null | undefined): boolean {
+  return !!groupId && groupId.startsWith("transfer-");
+}
+
 /**
  * Filtro Prisma (where) que mantém apenas BankEntries manuais — ou seja,
  * exclui todos os espelhos de Transaction. Usar em qualquer query que some

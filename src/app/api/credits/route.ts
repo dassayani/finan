@@ -139,3 +139,36 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Erro interno" }, { status: 500 });
   }
 }
+
+/** Exclui todos os lançamentos de uma recorrência pelo groupId. */
+export async function DELETE(req: NextRequest) {
+  const session = await getServerSession(authOptions);
+  if (!session?.user?.id) return NextResponse.json({ error: "Não autorizado" }, { status: 401 });
+  const uid = session.user.id;
+
+  const { searchParams } = new URL(req.url);
+  const groupId = searchParams.get("groupId");
+  if (!groupId) return NextResponse.json({ error: "groupId é obrigatório" }, { status: 400 });
+
+  const txs = await prisma.transaction.findMany({
+    where: { userId: uid, groupId, type: "INCOME" },
+    select: { id: true, description: true, amount: true },
+  });
+
+  if (txs.length === 0) return new NextResponse(null, { status: 204 });
+
+  await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+    for (const t of txs) {
+      await tx.bankEntry.deleteMany({ where: { userId: uid, groupId: `credit-entry-${t.id}` } });
+    }
+    await tx.transaction.deleteMany({ where: { userId: uid, groupId, type: "INCOME" } });
+  });
+
+  await recordAudit({
+    userId: uid, action: "DELETE", entity: "credit", entityId: groupId,
+    before: { groupId, count: txs.length, description: txs[0].description, totalAmount: txs.reduce((s, t) => s + Number(t.amount), 0) },
+    ip: ipFromRequest(req),
+  });
+
+  return new NextResponse(null, { status: 204 });
+}

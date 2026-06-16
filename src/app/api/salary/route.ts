@@ -36,6 +36,8 @@ const salarySchema = z.object({
   salaryCustomBankId: z.string().nullable().optional(),
   salaryBankSinceMonth: z.number().int().min(1).max(12).nullable().optional(),
   salaryBankSinceYear: z.number().int().min(2000).nullable().optional(),
+  contractEndMonth: z.number().int().min(1).max(12).nullable().optional(),
+  contractEndYear: z.number().int().min(2000).nullable().optional(),
   items: z.array(itemSchema),
 });
 
@@ -81,12 +83,23 @@ export async function GET(req: NextRequest) {
         : null,
     ]);
 
+    // Se o contrato foi encerrado e o mês solicitado é posterior ao encerramento,
+    // retorna effective null para que a UI mostre o banner de contrato encerrado.
+    const endM = template?.contractEndMonth ?? null;
+    const endY = template?.contractEndYear  ?? null;
+    const contractEnded = !!(endM && endY && month > 0 && (
+      year > endY || (year === endY && month > endM)
+    ));
+
     return NextResponse.json({
       template,
       monthSalary,
-      effective: monthSalary ?? prevSalary ?? template,
-      source: monthSalary ? "month" : prevSalary ? "prev" : template ? "template" : null,
+      effective: contractEnded ? null : (monthSalary ?? prevSalary ?? template),
+      source: contractEnded ? null : (monthSalary ? "month" : prevSalary ? "prev" : template ? "template" : null),
       bankEntry,
+      contractEnded,
+      contractEndMonth: endM,
+      contractEndYear: endY,
     });
   } catch (error) {
     console.error("[salary GET]", error);
@@ -107,6 +120,8 @@ export async function POST(req: NextRequest) {
       salaryCustomBankId,
       salaryBankSinceMonth,
       salaryBankSinceYear,
+      contractEndMonth,
+      contractEndYear,
       month: reqMonth,
       year: reqYear,
       ...fields
@@ -136,6 +151,8 @@ export async function POST(req: NextRequest) {
               salaryCustomBankId: customBankId,
               salaryBankSinceMonth: sinceMonth,
               salaryBankSinceYear: sinceYear,
+              contractEndMonth: contractEndMonth ?? null,
+              contractEndYear: contractEndYear ?? null,
               items: { deleteMany: {}, create: itemRows },
             },
           });
@@ -152,6 +169,8 @@ export async function POST(req: NextRequest) {
               salaryCustomBankId: customBankId,
               salaryBankSinceMonth: sinceMonth,
               salaryBankSinceYear: sinceYear,
+              contractEndMonth: contractEndMonth ?? null,
+              contractEndYear: contractEndYear ?? null,
               items: { create: itemRows },
             },
             include: { items: { orderBy: { order: "asc" } } },

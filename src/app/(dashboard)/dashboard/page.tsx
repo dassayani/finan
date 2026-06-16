@@ -7,7 +7,7 @@ import { BankBadge } from "@/components/ui/bank-badge";
 import { BANKS, CATEGORIES, formatBRL } from "@/lib/constants";
 import type { BankKey, CategoryKey } from "@/lib/constants";
 import type { DashTransaction as Transaction } from "@/types/dashboard";
-import { isMirrorGroupId } from "@/lib/bank-entry-sync";
+import { isMirrorGroupId, isTransferGroupId } from "@/lib/bank-entry-sync";
 import { useDashboardMensal } from "@/lib/hooks/use-dashboard-mensal";
 import { useDashboardAnual } from "@/lib/hooks/use-dashboard-anual";
 
@@ -154,10 +154,34 @@ export default function DashboardPage() {
   const [showFilters,  setShowFilters]  = useState(false);
 
   const {
-    monthDash, transactions, incomes, bankFees,
-    bankBalances, bankEntriesList, prevBankClosing,
+    monthDash, transactions, incomes: rawIncomes, bankFees,
+    bankBalances, bankEntriesList, prevBankClosing, salaryEffective,
     loading: mensalLoading,
   } = useDashboardMensal(month, year, excludedCats, view === "mensal");
+
+  // Se não há salário confirmado mas o template projeta um, injetar como projetado
+  const hasSalaryTx = rawIncomes.some(t => t.groupId?.startsWith("salary-"));
+  const projectedSalaryTx: Transaction | null =
+    (!hasSalaryTx && salaryEffective && !salaryEffective.contractEnded && salaryEffective.netAmount > 0)
+      ? {
+          id: `_proj-salary-${month}-${year}`,
+          description: "Salário (projetado)",
+          amount: salaryEffective.netAmount,
+          type: "INCOME" as const,
+          expenseType: null,
+          category: "salario" as const,
+          bank: null,
+          date: new Date(year, month - 1, 1).toISOString(),
+          isPaid: false,
+          notes: null,
+          installments: null,
+          installmentIndex: null,
+          groupId: null,
+        }
+      : null;
+  const incomes: Transaction[] = projectedSalaryTx
+    ? [projectedSalaryTx, ...rawIncomes]
+    : rawIncomes;
 
   const {
     yearData, investments, salaryNet,
@@ -209,7 +233,7 @@ export default function DashboardPage() {
   // saldo projetado divergem do que a tela de Bancos mostra. Espelhos
   // (salary-entry-, credit-entry-, etc.) e investimentos (reserva) ficam de fora —
   // já são contados via Transaction / não compõem fluxo.
-  const manualBE        = bankEntriesList.filter(e => !isMirrorGroupId(e.groupId) && e.category !== "reserva");
+  const manualBE        = bankEntriesList.filter(e => !isMirrorGroupId(e.groupId) && !isTransferGroupId(e.groupId) && e.category !== "reserva");
   const manualBeIncome  = manualBE.filter(e => e.type === "INCOME").reduce((a, e) => a + Number(e.amount), 0);
   const manualBeExpense = manualBE.filter(e => e.type === "EXPENSE");
   const manualBeExpenseForBank = (id: string) =>
@@ -229,6 +253,29 @@ export default function DashboardPage() {
     const bonusYear = parseInt(t.groupId.split("-")[2]);
     return bonusYear === year;
   });
+
+  // Entradas manuais de banco (BankEntry INCOME, não-espelhos) mapeadas para o
+  // shape de Transaction para exibição no bloco Razão. São contadas no KPI e
+  // devem aparecer na lista — sem isso o contador diz "5 lançamentos" mas só 3 aparecem.
+  const incomeManualBEItems = manualBE
+    .filter(e => e.type === "INCOME")
+    .map(e => ({
+      id: e.id,
+      description: e.description,
+      amount: e.amount,
+      type: "INCOME" as const,
+      expenseType: null,
+      category: e.category,
+      bank: e.bank,
+      date: new Date(year, month - 1, 1).toISOString(),
+      isPaid: e.isPaid,
+      notes: null,
+      installments: null,
+      installmentIndex: null,
+      groupId: e.groupId,
+    } satisfies Transaction));
+
+  const allListableIncomes: Transaction[] = [...listableIncomes, ...incomeManualBEItems];
 
   const fixosAll    = transactions.filter(t => t.expenseType === "FIXED");
   const variaveisAll = transactions.filter(t => t.expenseType === "VARIABLE");
@@ -354,9 +401,7 @@ export default function DashboardPage() {
             <div className="card kpi">
               <div className="kpi-label"><OrcaIcon name="arrowDown" size={13} style={{ color: "var(--pos)" }} />Receitas</div>
               <div className="kpi-val sm num" style={{ color: "var(--pos)" }}>{credits > 0 ? formatBRL(credits) : "—"}</div>
-              {(() => { const n = regularIncomes.length + manualBE.filter(e => e.type === "INCOME").length; return (
-              <div className="kpi-delta muted">{n} lançamento{n !== 1 ? "s" : ""}</div>
-              ); })()}
+              <div className="kpi-delta muted">{allListableIncomes.length} lançamento{allListableIncomes.length !== 1 ? "s" : ""}</div>
             </div>
             <div className="card kpi">
               <div className="kpi-label"><OrcaIcon name="arrowUp" size={13} style={{ color: "var(--neg)" }} />Despesas</div>
@@ -502,8 +547,8 @@ export default function DashboardPage() {
               <ReadOnlySection
                 title="Receitas" color="var(--pos)"
                 badge={<span style={{ color: "var(--pos)", fontWeight: 900, fontSize: 17, lineHeight: 1 }}>↑</span>}
-                items={listableIncomes} total={credits}
-                paidVal={sumPaid(listableIncomes)} variant="income"
+                items={allListableIncomes} total={credits}
+                paidVal={sumPaid(allListableIncomes)} variant="income"
               />
 
               {/* Gastos Fixos — exclui os com banco (aparecem no card do banco via Saídas) */}

@@ -47,10 +47,23 @@ export function useDashboardAnual(
       const investments = invRes.ok ? await invRes.json() : [];
 
       let salaryNet = 0;
+      let contractEnd: { month: number; year: number } | null = null;
       if (salRes.ok) {
         const sd = await salRes.json();
         salaryNet = Number(sd.template?.netAmount ?? 0);
+        if (sd.template?.contractEndMonth && sd.template?.contractEndYear) {
+          contractEnd = { month: sd.template.contractEndMonth, year: sd.template.contractEndYear };
+        }
       }
+
+      const isFutureMonth = (mn: number) =>
+        year > curYear || (year === curYear && mn > curMonth);
+
+      const isAfterContractEnd = (mn: number) =>
+        !!contractEnd && (
+          year > contractEnd.year ||
+          (year === contractEnd.year && mn > contractEnd.month)
+        );
 
       let yearData: YearMonthData[] = MONTH_NAMES.map(m => ({
         m, income: salaryNet, expense: 0, projected: true,
@@ -60,7 +73,7 @@ export function useDashboardAnual(
         const { months } = await dashRes.json() as { months: AnnualMonth[] };
         yearData = MONTH_NAMES.map((m, i) => {
           const mn = i + 1;
-          if (year === curYear && mn > curMonth) {
+          if (isFutureMonth(mn) && !isAfterContractEnd(mn) && salaryNet > 0) {
             return { m, income: salaryNet, expense: 0, projected: true };
           }
           const d = months.find(x => x.month === mn);

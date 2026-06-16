@@ -9,7 +9,10 @@ import { BatchFeedbackContent } from "@/components/dashboard/batch-feedback-cont
 import { BANKS, CATEGORIES, categoriesFor, formatBRL } from "@/lib/constants";
 import { splitInstallments } from "@/lib/money";
 import { fetchWithTimeoutAndRetry } from "@/lib/network";
+import { isTransferGroupId } from "@/lib/bank-entry-sync";
 import type { BankKey, CategoryKey } from "@/lib/constants";
+
+interface OtherBank { id: string; name: string; isCustom: boolean; }
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -221,19 +224,30 @@ function BankEntryForm({ defaultType, defaultCategory, cardMonth, cardYear, onSa
 
 // ─── DeleteEntryDialog ───────────────────────────────────────────────────────
 
-function DeleteEntryDialog({ description, installments, onDeleteOne, onDeleteAll, onCancel }: {
+function DeleteEntryDialog({ description, installments, onDeleteOne, onDeleteAll, onCancel, isTransfer }: {
   description: string;
   installments?: number | null;
   onDeleteOne: () => void;
   onDeleteAll?: () => void;
   onCancel: () => void;
+  isTransfer?: boolean;
 }) {
   const countLabel = installments && installments > 1 ? ` (${installments})` : "";
   return (
     <div style={{ margin: "4px 0", padding: "10px 12px", background: "var(--neg-soft, #fdecea)", borderRadius: "var(--r-md)", border: "1px solid var(--neg)" }}>
       <div style={{ fontSize: 12.5, fontWeight: 700, color: "var(--neg)", marginBottom: 8 }}>
-        Remover &quot;{description}&quot;?
+        {isTransfer ? "Remover transferência?" : `Remover "${description}"?`}
       </div>
+      {isTransfer ? (
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          <button onClick={onDeleteAll!} style={{ padding: "5px 12px", fontSize: 12, fontWeight: 700, borderRadius: "var(--r-sm)", cursor: "pointer", border: "1.5px solid var(--neg)", background: "var(--neg)", color: "#fff" }}>
+            Remover (ambos os bancos)
+          </button>
+          <button onClick={onCancel} style={{ padding: "5px 12px", fontSize: 12, fontWeight: 700, borderRadius: "var(--r-sm)", cursor: "pointer", border: "1.5px solid var(--neg)", background: "var(--surface)", color: "var(--neg)" }}>
+            Cancelar
+          </button>
+        </div>
+      ) : (
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
         <button onClick={onDeleteOne} style={{ padding: "5px 12px", fontSize: 12, fontWeight: 700, borderRadius: "var(--r-sm)", cursor: "pointer", border: "1.5px solid var(--neg)", background: "var(--surface)", color: "var(--neg)" }}>
           Só este lançamento
@@ -245,6 +259,65 @@ function DeleteEntryDialog({ description, installments, onDeleteOne, onDeleteAll
         )}
         <button onClick={onCancel} style={{ padding: "5px 12px", fontSize: 12, fontWeight: 700, borderRadius: "var(--r-sm)", cursor: "pointer", border: "1.5px solid var(--ink-2)", background: "var(--surface)", color: "var(--ink)" }}>
           Cancelar
+        </button>
+      </div>
+      )}
+    </div>
+  );
+}
+
+// ─── TransferForm ──────────────────────────────────────────────────────────────
+
+function TransferForm({ allOtherBanks, onSave, onCancel }: {
+  allOtherBanks: OtherBank[];
+  onSave: (destId: string, isCustomDest: boolean, amount: number, desc: string) => Promise<void>;
+  onCancel: () => void;
+}) {
+  const [destId,  setDestId]  = useState(allOtherBanks[0]?.id ?? "");
+  const [amount,  setAmount]  = useState("");
+  const [desc,    setDesc]    = useState("");
+  const [saving,  setSaving]  = useState(false);
+
+  const amountVal = parseFloat(amount) || 0;
+  const dest = allOtherBanks.find(b => b.id === destId);
+
+  async function handleSave() {
+    if (!dest || amountVal <= 0) return;
+    setSaving(true);
+    try {
+      await onSave(dest.id, dest.isCustom, amountVal, desc.trim() || "Transferência");
+    } finally { setSaving(false); }
+  }
+
+  return (
+    <div style={{ margin: "8px 0 4px", padding: 14, background: "var(--surface-2)", borderRadius: "var(--r-md)", border: "1px solid var(--line)" }}>
+      <div style={{ fontWeight: 700, fontSize: 12, color: "var(--ink-2)", marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}>
+        <OrcaIcon name="wallet" size={13} style={{ color: "var(--accent)" }} />
+        Transferência entre bancos
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
+        <div>
+          <label style={{ fontSize: 11, fontWeight: 700, color: "var(--ink-3)", display: "block", marginBottom: 4 }}>Destino</label>
+          <select className="orça-input" value={destId} onChange={e => setDestId(e.target.value)} style={{ fontSize: 13 }}>
+            {allOtherBanks.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+          </select>
+        </div>
+        <div>
+          <label style={{ fontSize: 11, fontWeight: 700, color: "var(--ink-3)", display: "block", marginBottom: 4 }}>Valor</label>
+          <div className="input-prefix">
+            <span className="pf" style={{ fontSize: 12 }}>R$</span>
+            <input className="orça-input num" type="number" step="0.01" value={amount} onChange={e => setAmount(e.target.value)} placeholder="0,00" style={{ paddingLeft: 28, fontSize: 13 }} />
+          </div>
+        </div>
+      </div>
+      <div style={{ marginBottom: 10 }}>
+        <label style={{ fontSize: 11, fontWeight: 700, color: "var(--ink-3)", display: "block", marginBottom: 4 }}>Descrição (opcional)</label>
+        <input className="orça-input" value={desc} onChange={e => setDesc(e.target.value)} placeholder="Ex: PIX para conta corrente" style={{ fontSize: 13, width: "100%" }} />
+      </div>
+      <div style={{ display: "flex", gap: 8 }}>
+        <button className="btn btn-ghost" style={{ fontSize: 12, padding: "6px 12px" }} onClick={onCancel}>Cancelar</button>
+        <button className="btn btn-primary" style={{ fontSize: 12, padding: "6px 14px", flex: 1, justifyContent: "center" }} disabled={saving || !destId || amountVal <= 0} onClick={handleSave}>
+          {saving ? "Transferindo..." : <><OrcaIcon name="check" size={13} />Confirmar transferência</>}
         </button>
       </div>
     </div>
@@ -421,10 +494,12 @@ function EntrySection({
                 ) : (
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "4px 0", fontSize: 13 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 6, opacity: e.id.startsWith("__tmp") ? 0.5 : 1 }}>
-                      {e.category && CATEGORIES[e.category as CategoryKey] && (
+                      {isTransferGroupId(e.groupId) ? (
+                        <span style={{ fontSize: 11, fontWeight: 700, color: "var(--ink-3)", background: "var(--surface-2)", padding: "1px 6px", borderRadius: 4, flex: "0 0 auto" }}>↔</span>
+                      ) : e.category && CATEGORIES[e.category as CategoryKey] ? (
                         <span style={{ width: 7, height: 7, borderRadius: "50%", background: CATEGORIES[e.category as CategoryKey].color, flex: "0 0 auto" }} />
-                      )}
-                      <span style={{ fontWeight: 600, color: "var(--ink-2)" }}>{e.description}</span>
+                      ) : null}
+                      <span style={{ fontWeight: 600, color: isTransferGroupId(e.groupId) ? "var(--ink-3)" : "var(--ink-2)" }}>{e.description}</span>
                       {e.installments && e.installments > 1 && (
                         <span style={{ fontSize: 10, fontWeight: 700, color: "var(--ink-3)", background: "var(--surface-2)", padding: "1px 5px", borderRadius: 4 }}>
                           {e.installments}x
@@ -432,12 +507,12 @@ function EntrySection({
                       )}
                     </div>
                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      <span className="num" style={{ fontWeight: 700, color: isPos ? "var(--pos)" : (accentColor ?? "var(--neg)") }}>
+                      <span className="num" style={{ fontWeight: 700, color: isTransferGroupId(e.groupId) ? "var(--ink-3)" : isPos ? "var(--pos)" : (accentColor ?? "var(--neg)") }}>
                         {isPos ? "+" : "−"}{formatBRL(Number(e.amount))}
                       </span>
                       {!e.id.startsWith("__tmp") && (
                         <>
-                          {(e.groupId?.startsWith("salary-entry-") || e.groupId?.startsWith("bonus-entry-") || e.groupId?.startsWith("credit-entry-") || e.groupId?.startsWith("sub-entry-") || e.groupId?.startsWith("loan-entry-")) && onTogglePaid ? (
+                          {!isTransferGroupId(e.groupId) && ((e.groupId?.startsWith("salary-entry-") || e.groupId?.startsWith("bonus-entry-") || e.groupId?.startsWith("credit-entry-") || e.groupId?.startsWith("sub-entry-") || e.groupId?.startsWith("loan-entry-")) && onTogglePaid ? (
                             <PayToggle
                               paid={e.isPaid ?? false}
                               onToggle={() => {
@@ -454,7 +529,7 @@ function EntrySection({
                                 <OrcaIcon name="edit" size={13} />
                               </button>
                             )
-                          )}
+                          ))}
                           <button onClick={() => setPendingDelete(pendingDelete?.id === e.id ? null : e)}
                             style={{ background: "none", border: "none", cursor: "pointer", color: pendingDelete?.id === e.id ? "var(--neg)" : "var(--ink-3)", padding: 2 }}>
                             <OrcaIcon name="trash" size={13} />
@@ -471,6 +546,7 @@ function EntrySection({
                     onDeleteOne={() => handleDeleteOne(e)}
                     onDeleteAll={onDeleteGroup ? () => handleDeleteAll(e) : undefined}
                     onCancel={() => setPendingDelete(null)}
+                    isTransfer={isTransferGroupId(e.groupId)}
                   />
                 )}
               </div>
@@ -1300,6 +1376,7 @@ function BankCard({
   onAddBillTxs, onUpdateBillTx, onDeleteBillTx, onDeleteBillTxGroup, onDeleteEntryGroup, onTogglePaid,
   onPayAllBillTxs, onDeleteAllBillTxs,
   onAddEntryBatch, onToggleEntryPaid,
+  allOtherBanks = [], onAddTransfer,
   isCustom, onDeleteBank, onConfigureBank, isClosed = false, onToggleClose,
   month, year, isFuture = false,
   cutoffDay, dueDay,
@@ -1332,6 +1409,8 @@ function BankCard({
   onDeleteEntryGroup?: (entry: CardEntry) => Promise<void>;
   onTogglePaid?: (id: string, isPaid: boolean) => Promise<void>;
   onToggleEntryPaid?: (id: string, isPaid: boolean) => Promise<void>;
+  allOtherBanks?: OtherBank[];
+  onAddTransfer?: (destId: string, isCustomDest: boolean, amount: number, desc: string) => Promise<void>;
   isCustom?: boolean;
   onDeleteBank?: () => Promise<void>;
   onConfigureBank?: () => void;
@@ -1355,6 +1434,7 @@ function BankCard({
   const [feeName, setFeeName] = useState("");
   const [feeAmount, setFeeAmount] = useState("");
   const [feeDay, setFeeDay] = useState("1");
+  const [showTransferForm, setShowTransferForm] = useState(false);
   const [savingFee, setSavingFee] = useState(false);
   const [feeError, setFeeError] = useState(false);
   const [showBillForm, setShowBillForm] = useState(false);
@@ -1659,6 +1739,33 @@ function BankCard({
         onDeleteGroup={onDeleteEntryGroup} onTotalChange={setLocalEntTotal}
         cardMonth={month} cardYear={year} onAddBatch={onAddEntryBatch}
         onTogglePaid={onToggleEntryPaid} />
+
+      {/* ── Transferências ── */}
+      {onAddTransfer && allOtherBanks.length > 0 && (
+        <div style={{ borderBottom: "1px solid var(--line-2)" }}>
+          {showTransferForm ? (
+            <div style={{ padding: "8px 18px 12px" }}>
+              <TransferForm
+                allOtherBanks={allOtherBanks}
+                onSave={async (destId, isCustomDest, amount, desc) => {
+                  await onAddTransfer(destId, isCustomDest, amount, desc);
+                  setShowTransferForm(false);
+                }}
+                onCancel={() => setShowTransferForm(false)}
+              />
+            </div>
+          ) : (
+            <button
+              onClick={() => setShowTransferForm(true)}
+              style={{ width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "10px 18px", background: "none", border: "none", cursor: "pointer", color: "var(--ink-3)", fontSize: 12, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase" }}
+            >
+              <OrcaIcon name="wallet" size={14} style={{ color: "var(--accent)" }} />
+              <span style={{ color: "var(--accent)" }}>↔</span>
+              Fazer transferência
+            </button>
+          )}
+        </div>
+      )}
 
       {/* ── Saídas ── */}
       <EntrySection label="Saídas" type="EXPENSE" entries={saidas}
@@ -2677,6 +2784,13 @@ export default function BancosPage() {
   }
 
   async function deleteEntryGroup(entry: CardEntry) {
+    // Transferências têm groupId "transfer-..." — deleta os dois lados via API própria
+    if (isTransferGroupId(entry.groupId)) {
+      await fetch(`/api/bank-transfers?groupId=${encodeURIComponent(entry.groupId!)}`, { method: "DELETE" });
+      await fetchAll();
+      return;
+    }
+
     let res: Response;
     if (entry.groupId) {
       res = await fetch(`/api/bank-entries?groupId=${encodeURIComponent(entry.groupId)}`, { method: "DELETE" });
@@ -2955,6 +3069,47 @@ export default function BancosPage() {
     return active;
   }, [bankConfigs, balances, fees, entries, billTransactions, investments, everActiveBanks]);
 
+  // Lista unificada de todos os bancos ativos e não-fechados para selector de transferência
+  const allActiveBanks = useMemo<OtherBank[]>(() => [
+    ...BANK_KEYS.filter(k => activeBankKeys.has(k) && !closedBanks.has(k)).map(k => ({ id: k, name: BANKS[k].name, isCustom: false })),
+    ...customBanks.filter(cb => !closedBanks.has(cb.id)).map(cb => ({ id: cb.id, name: cb.name, isCustom: true })),
+  ], [activeBankKeys, customBanks, closedBanks]);
+
+  async function addTransfer(sourceBankId: string, destId: string, isCustomDest: boolean, amount: number, desc: string) {
+    const isCustomSource = customBanks.some(b => b.id === sourceBankId);
+    const sourceName = isCustomSource
+      ? (customBanks.find(b => b.id === sourceBankId)?.name ?? sourceBankId)
+      : (BANKS[sourceBankId as BankKey]?.name ?? sourceBankId);
+    const destName = isCustomDest
+      ? (customBanks.find(b => b.id === destId)?.name ?? destId)
+      : (BANKS[destId as BankKey]?.name ?? destId);
+
+    const res = await fetch("/api/bank-transfers", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        sourceBank:         isCustomSource ? null : sourceBankId,
+        sourceCustomBankId: isCustomSource ? sourceBankId : null,
+        sourceName,
+        destBank:           isCustomDest ? null : destId,
+        destCustomBankId:   isCustomDest ? destId : null,
+        destName,
+        amount,
+        description: desc,
+        month,
+        year,
+      }),
+    });
+
+    if (!res.ok) {
+      const payload = await res.json().catch(() => null);
+      showFeedback("Erro na transferência", String(payload?.error ?? `HTTP ${res.status}`), [], "error");
+      return;
+    }
+
+    await fetchAll();
+  }
+
   const totalBalance = [
     ...BANK_KEYS.filter(k => activeBankKeys.has(k)).map(k => {
       const bal   = balances.find(b => b.bank === k);
@@ -3196,6 +3351,8 @@ export default function BancosPage() {
                       onDeleteEntryGroup={deleteEntryGroup}
                       onTogglePaid={togglePaid}
                       onToggleEntryPaid={toggleEntryPaid}
+                      allOtherBanks={allActiveBanks.filter(b => b.id !== bankKey)}
+                      onAddTransfer={(destId, isCustomDest, amount, desc) => addTransfer(bankKey, destId, isCustomDest, amount, desc)}
                       onPayAllBillTxs={() => payAllBillTxs(bankKey)}
                       onDeleteAllBillTxs={() => deleteAllBillTxs(bankKey)}
                       month={month} year={year}
@@ -3243,6 +3400,8 @@ export default function BancosPage() {
                       onAddEntryBatch={items => addCustomEntryBatch(cb.id, items)}
                       onDeleteEntryGroup={deleteEntryGroup}
                       onToggleEntryPaid={toggleEntryPaid}
+                      allOtherBanks={allActiveBanks.filter(b => b.id !== cb.id)}
+                      onAddTransfer={(destId, isCustomDest, amount, desc) => addTransfer(cb.id, destId, isCustomDest, amount, desc)}
                       month={month} year={year}
                       onConfigureBank={() => setConfiguringBank({
                         bankName: cb.name, bankShort: cb.short, bankColor: cb.color,
