@@ -9,7 +9,7 @@
     "lint": "eslint",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:realdb": "cross-env RUN_REAL_DB_TESTS=1 vitest run tests/api-real/**/*.test.ts",
+    "test:realdb": "cross-env RUN_REAL_DB_TESTS=1 vitest run tests/api-real",
     "postinstall": "prisma generate",
     "prepare": "husky"
   },
