@@ -948,70 +948,29 @@ export default function CreditosPage() {
       const bv = (data.bankValue as string) ?? "";
       const bank = bv.startsWith("std:") ? bv.slice(4) : null;
       const customBankId = bv.startsWith("cst:") ? bv.slice(4) : null;
-      const hasBank = !!(bank || customBankId);
 
-      async function createBankEntry(txId: string, date: Date, amount: number) {
-        await fetch("/api/bank-entries", {
+      // Dual-write (receita + lançamento bancário espelho) agora é ATÔMICO no
+      // servidor — ver /api/credits. Evita órfãos quando uma das gravações falha.
+      if (editCredit) {
+        await fetch(`/api/credits/${editCredit.id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            description: data.description, amount: Number(data.amount), category: data.category ?? null,
+            date: data.date, notes: data.notes ?? null, bank, customBankId,
+          }),
+        });
+      } else {
+        await fetch("/api/credits", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            bank: bank || null, customBankId: customBankId || null,
-            month: date.getMonth() + 1, year: date.getFullYear(),
-            description: data.description, amount,
-            type: "INCOME", category: data.category || null,
-            groupId: `credit-entry-${txId}`,
+            description: data.description, amount: Number(data.amount), category: data.category ?? null,
+            date: data.date, notes: data.notes ?? null, isPaid: data.isPaid ?? false,
+            bank, customBankId,
+            recurring: data.isRecurring ? { until: data.endDate ?? null } : null,
           }),
         });
-      }
-
-      if (editCredit) {
-        await fetch(`/api/transactions/${editCredit.id}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ description: data.description, amount: data.amount, category: data.category, date: data.date, notes: data.notes, bank: bank || null }),
-        });
-        // Replace BankEntry: delete old (if any), create new if bank selected
-        await fetch(`/api/bank-entries?groupId=credit-entry-${editCredit.id}`, { method: "DELETE" });
-        if (hasBank) {
-          await createBankEntry(editCredit.id, parseLocalDate(data.date as string), Number(data.amount));
-        }
-      } else if (data.isRecurring) {
-        const startDate = parseLocalDate(data.date as string);
-        const endDate = data.endDate ? parseLocalDate(data.endDate as string) : new Date(startDate.getFullYear(), startDate.getMonth() + 23, startDate.getDate());
-        const groupId = `recur-${Date.now()}`;
-
-        const dates: Date[] = [];
-        let d = new Date(startDate);
-        while (d <= endDate) {
-          dates.push(new Date(d));
-          d = new Date(d.getFullYear(), d.getMonth() + 1, d.getDate());
-        }
-
-        const txResponses = await Promise.all(dates.map((dt, i) =>
-          fetch("/api/transactions", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ description: data.description, amount: data.amount, type: "INCOME", category: data.category, date: formatLocalDate(dt), notes: data.notes, isPaid: i === 0, groupId, bank: bank || null }),
-          })
-        ));
-
-        if (hasBank) {
-          await Promise.all(txResponses.map(async (res, i) => {
-            if (!res.ok) return;
-            const tx = await res.json();
-            await createBankEntry(tx.id, dates[i], Number(data.amount));
-          }));
-        }
-      } else {
-        const res = await fetch("/api/transactions", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ...data, bankValue: undefined, isRecurring: undefined, endDate: undefined, bank: bank || null }),
-        });
-        if (hasBank && res.ok) {
-          const tx = await res.json();
-          await createBankEntry(tx.id, parseLocalDate(data.date as string), Number(data.amount));
-        }
       }
       setEditCredit(null); setShowNewReceita(null); fetchCredits();
     } finally { setSavingCredit(false); }
@@ -1019,10 +978,7 @@ export default function CreditosPage() {
 
   async function handleDeleteCredit(id: string, desc: string) {
     if (!confirm(`Excluir "${desc}"?`)) return;
-    await Promise.all([
-      fetch(`/api/transactions/${id}`, { method: "DELETE" }),
-      fetch(`/api/bank-entries?groupId=credit-entry-${id}`, { method: "DELETE" }),
-    ]);
+    await fetch(`/api/credits/${id}`, { method: "DELETE" });
     fetchCredits();
   }
 

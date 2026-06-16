@@ -4,21 +4,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { CATEGORIES } from "@/lib/constants";
 import type { CategoryKey } from "@/lib/constants";
-
-// BankEntry filter: exclude auto-created entries that already have a Transaction counterpart
-function bankEntryAutoExclude() {
-  return {
-    OR: [
-      { groupId: null },
-      {
-        NOT: [
-          { groupId: { startsWith: "salary-entry-" } },
-          { groupId: { startsWith: "bonus-entry-" } },
-        ],
-      },
-    ],
-  };
-}
+import { manualBankEntryWhere } from "@/lib/bank-entry-sync";
 
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions);
@@ -52,7 +38,7 @@ export async function GET(req: NextRequest) {
           userId: session.user.id,
           year,
           category: beExclCategory,
-          ...bankEntryAutoExclude(),
+          ...manualBankEntryWhere(),
         },
         select: { type: true, amount: true, month: true },
       }),
@@ -95,7 +81,7 @@ export async function GET(req: NextRequest) {
         month,
         year,
         category: beExclCategory,
-        ...bankEntryAutoExclude(),
+        ...manualBankEntryWhere(),
       },
       select: { type: true, amount: true, category: true },
     }),

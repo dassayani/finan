@@ -3,11 +3,15 @@ import { getServerSession } from "next-auth";
 import { z } from "zod";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { BANKS } from "@/lib/constants";
+import type { BankKey } from "@/lib/constants";
+
+const bankKeySchema = z.string().refine((v): v is BankKey => v in BANKS, { message: "Banco inválido" });
 
 const schema = z.object({
   name: z.string().min(1),
   type: z.string().min(1),
-  institution: z.string().optional().nullable(),
+  institution: bankKeySchema.optional().nullable(),
   value: z.number().positive(),
   returnRate: z.number().optional().nullable(),
   monthlyAdd: z.number().optional().nullable(),
@@ -36,7 +40,7 @@ export async function POST(req: NextRequest) {
       data: {
         name: data.name,
         type: data.type,
-        institution: (data.institution as import("@prisma/client").BankKey) ?? null,
+        institution: (data.institution as BankKey) ?? null,
         value: data.value,
         returnRate: data.returnRate ?? null,
         monthlyAdd: data.monthlyAdd ?? null,
@@ -45,6 +49,9 @@ export async function POST(req: NextRequest) {
     });
     return NextResponse.json(inv, { status: 201 });
   } catch (error) {
+    if (error instanceof z.ZodError) {
+      return NextResponse.json({ error: error.issues.map(i => i.message).join("; ") }, { status: 400 });
+    }
     console.error("[investments POST]", error);
     return NextResponse.json({ error: "Erro interno" }, { status: 500 });
   }

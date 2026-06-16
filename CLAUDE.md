@@ -204,6 +204,21 @@ Use `categoriesFor('income')` ou `categoriesFor('expense')` para obter a lista f
 
 ## APIs — Comportamentos não-óbvios
 
+### Dual-ledger: `Transaction` ↔ `BankEntry` (LEIA ANTES de mexer em saldo/dashboard)
+
+O app mantém **dois ledgers paralelos**: `Transaction` (orçamento/dashboard/categorias) e `BankEntry` (conciliação de saldo por banco). Alguns `BankEntry` são **espelhos** de uma `Transaction`, identificados pelo prefixo do `groupId`. A fonte da verdade é `src/lib/bank-entry-sync.ts`:
+
+- Prefixos-espelho: `salary-entry-`, `bonus-entry-`, `credit-entry-`, `loan-entry-`, `sub-entry-`
+- **Qualquer agregação que some `BankEntry` + `Transaction`** (ex.: dashboard) deve excluir os espelhos via `manualBankEntryWhere()` (servidor) ou `isMirrorGroupId()` (cliente) — senão **conta duas vezes**.
+- `BankEntry` "manual" (groupId null ou não-espelho) **deve** entrar no dashboard — é despesa/receita que só existe no banco.
+
+### `/api/credits` — dual-write ATÔMICO
+
+- **POST** cria a receita (`Transaction` INCOME) **e**, se houver banco, o `BankEntry` espelho (`credit-entry-{txId}`) dentro de um único `prisma.$transaction`. Aceita `recurring: { until }` para gerar N meses.
+- **PUT `/api/credits/[id]`** atualiza a receita e recria o espelho atomicamente (preserva `isPaid`).
+- **DELETE `/api/credits/[id]`** remove receita + espelho atomicamente.
+- ⚠️ Nunca volte a orquestrar esse dual-write no cliente com fetches separados — gera órfãos em falha parcial.
+
 ### `/api/transactions`
 
 - **POST batch:** aceita `[...items]` ou `{ items: [...] }` — retorna HTTP 207 em falha parcial
@@ -371,10 +386,15 @@ Ver caminhos disponíveis em `src/components/ui/orca-icon.tsx`.
 | DebitoPage — fluxo completo | ✅ UI (18 testes) |
 | BancosPage — feedback de erro | ✅ UI (1 teste) |
 | BatchFeedbackContent | ✅ UI componente (3 testes) |
+| dashboard API (mensal + anual + merge BankEntry) | ✅ integração (13 testes) |
+| credits API (POST/PUT/DELETE atômico) | ✅ integração (14 testes) |
+| investments API (PUT/DELETE/POST + validação) | ✅ integração (10 testes) |
+| money.ts (`splitInstallments`, `roundMoney`) | ✅ unit (7 testes) |
+| bank-entry-sync.ts (`manualBankEntryWhere`) | ✅ unit (5 testes) |
+| rate-limit.ts | ✅ unit (6 testes) |
 | transactions GET / DELETE / PATCH | ❌ sem testes |
 | salary, bonus | ❌ sem testes |
-| subscriptions, investments | ❌ sem testes |
-| dashboard API | ❌ sem testes |
+| subscriptions | ❌ sem testes |
 | AssaturasPage, InvestimentosPage | ❌ sem testes UI |
 
 ## Build — TypeScript

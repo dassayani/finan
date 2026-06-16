@@ -35,6 +35,8 @@ export interface DashBankEntry {
   amount: number;
   type: "INCOME" | "EXPENSE";
   category: string | null;
+  groupId: string | null;
+  isPaid: boolean;
 }
 
 export interface CategoryStat {

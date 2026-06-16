@@ -174,7 +174,7 @@ describe("CreditosPage", () => {
 
   // ── Salvar crédito ────────────────────────────────────────────────────────────
 
-  it("calls POST /api/transactions when saving a credit", async () => {
+  it("calls POST /api/credits (atomic dual-write) when saving a credit", async () => {
     const fetchMock = makeFetch([]);
     vi.stubGlobal("fetch", fetchMock);
 
@@ -196,7 +196,9 @@ describe("CreditosPage", () => {
     await waitFor(() => {
       const posted = fetchMock.mock.calls.some(([input, init]) => {
         const url = typeof input === "string" ? input : input.toString();
-        return (init as RequestInit)?.method === "POST" && url.includes("/api/transactions");
+        return (init as RequestInit)?.method === "POST"
+          && url.includes("/api/credits")
+          && !url.includes("/api/credits/"); // não confundir com PUT/DELETE em /[id]
       });
       expect(posted).toBe(true);
     });
@@ -204,7 +206,7 @@ describe("CreditosPage", () => {
 
   // ── Excluir crédito ───────────────────────────────────────────────────────────
 
-  it("calls DELETE /api/transactions when deletion is confirmed", async () => {
+  it("calls DELETE /api/credits/c1 when deletion is confirmed", async () => {
     vi.stubGlobal("confirm", vi.fn(() => true));
     const fetchMock = makeFetch([SAMPLE_CREDIT]);
     vi.stubGlobal("fetch", fetchMock);
@@ -219,7 +221,7 @@ describe("CreditosPage", () => {
     await waitFor(() => {
       const deleted = fetchMock.mock.calls.some(([input, init]) => {
         const url = typeof input === "string" ? input : input.toString();
-        return (init as RequestInit)?.method === "DELETE" && url.includes("/api/transactions/c1");
+        return (init as RequestInit)?.method === "DELETE" && url.includes("/api/credits/c1");
       });
       expect(deleted).toBe(true);
     });
@@ -239,7 +241,7 @@ describe("CreditosPage", () => {
     // No DELETE should have been called
     const deleted = fetchMock.mock.calls.some(([input, init]) => {
       const url = typeof input === "string" ? input : input.toString();
-      return (init as RequestInit)?.method === "DELETE" && url.includes("/api/transactions");
+      return (init as RequestInit)?.method === "DELETE" && url.includes("/api/credits");
     });
     expect(deleted).toBe(false);
   });

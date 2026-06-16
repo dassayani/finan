@@ -7,6 +7,7 @@ import { BankBadge } from "@/components/ui/bank-badge";
 import { BANKS, CATEGORIES, formatBRL } from "@/lib/constants";
 import type { BankKey, CategoryKey } from "@/lib/constants";
 import type { DashTransaction as Transaction } from "@/types/dashboard";
+import { isMirrorGroupId } from "@/lib/bank-entry-sync";
 import { useDashboardMensal } from "@/lib/hooks/use-dashboard-mensal";
 import { useDashboardAnual } from "@/lib/hooks/use-dashboard-anual";
 
@@ -202,7 +203,24 @@ export default function DashboardPage() {
     !t.groupId?.startsWith("bonus-")
   );
   const regularIncomes = incomes.filter(t => t.bank === null);
-  const credits        = sum(incomes); // all income: salary, bonus, regular
+
+  // Lançamentos bancários MANUAIS (existem só como BankEntry, sem Transaction
+  // espelho). Precisam entrar nas somas do dashboard, senão despesas/receitas e o
+  // saldo projetado divergem do que a tela de Bancos mostra. Espelhos
+  // (salary-entry-, credit-entry-, etc.) e investimentos (reserva) ficam de fora —
+  // já são contados via Transaction / não compõem fluxo.
+  const manualBE        = bankEntriesList.filter(e => !isMirrorGroupId(e.groupId) && e.category !== "reserva");
+  const manualBeIncome  = manualBE.filter(e => e.type === "INCOME").reduce((a, e) => a + Number(e.amount), 0);
+  const manualBeExpense = manualBE.filter(e => e.type === "EXPENSE");
+  const manualBeExpenseForBank = (id: string) =>
+    manualBeExpense.filter(e => e.bank === id).reduce((a, e) => a + Number(e.amount), 0);
+  // Despesas manuais sem banco padrão (custom bank ou sem banco) — entram no total
+  // mas não viram bucket próprio em "para onde foi".
+  const manualBeExpenseOther = manualBeExpense
+    .filter(e => !e.bank || !(e.bank in BANKS))
+    .reduce((a, e) => a + Number(e.amount), 0);
+
+  const credits        = sum(incomes) + manualBeIncome; // salary, bonus, regular + entradas manuais de banco
   // For bonus transactions, only show the one whose encoded year matches the
   // current dashboard year. Old-year bonuses paid in the current month (e.g. a
   // 2025 décimo with payDate in 2026) would otherwise show as duplicates.
@@ -224,6 +242,7 @@ export default function DashboardPage() {
     Math.max(0,
       sum(transactions.filter(t => (t.expenseType === "BANK_BILL" || t.expenseType === "FIXED" || t.expenseType === "VARIABLE") && t.bank === id))
       + sumFees(id)
+      + manualBeExpenseForBank(id) // saídas manuais lançadas direto no banco
     ),
   ]));
 
@@ -235,11 +254,14 @@ export default function DashboardPage() {
     bankEntriesList.some(e => e.bank === id && e.bank in BANKS)
   );
 
-  const debits  = fixosTotal + varsTotal + Object.values(banksTotals).reduce((a, v) => a + v, 0);
-  const paid    = sumPaid(transactions);
+  const debits  = fixosTotal + varsTotal + Object.values(banksTotals).reduce((a, v) => a + v, 0) + manualBeExpenseOther;
+  // Saldo real (pago/recebido): inclui também os lançamentos manuais de banco já quitados.
+  const manualBePaidExpense = manualBeExpense.filter(e => e.isPaid).reduce((a, e) => a + Number(e.amount), 0);
+  const manualBePaidIncome  = manualBE.filter(e => e.type === "INCOME" && e.isPaid).reduce((a, e) => a + Number(e.amount), 0);
+  const paid    = sumPaid(transactions) + manualBePaidExpense;
   const saldo   = credits - debits;
 
-  const receivedIncome = incomes.filter(t => t.isPaid).reduce((a, t) => a + Number(t.amount), 0);
+  const receivedIncome = incomes.filter(t => t.isPaid).reduce((a, t) => a + Number(t.amount), 0) + manualBePaidIncome;
   const realSaldo      = receivedIncome - paid;
 
   // "Para onde foi" buckets
@@ -332,12 +354,16 @@ export default function DashboardPage() {
             <div className="card kpi">
               <div className="kpi-label"><OrcaIcon name="arrowDown" size={13} style={{ color: "var(--pos)" }} />Receitas</div>
               <div className="kpi-val sm num" style={{ color: "var(--pos)" }}>{credits > 0 ? formatBRL(credits) : "—"}</div>
-              <div className="kpi-delta muted">{regularIncomes.length} lançamento{regularIncomes.length !== 1 ? "s" : ""}</div>
+              {(() => { const n = regularIncomes.length + manualBE.filter(e => e.type === "INCOME").length; return (
+              <div className="kpi-delta muted">{n} lançamento{n !== 1 ? "s" : ""}</div>
+              ); })()}
             </div>
             <div className="card kpi">
               <div className="kpi-label"><OrcaIcon name="arrowUp" size={13} style={{ color: "var(--neg)" }} />Despesas</div>
               <div className="kpi-val sm num" style={{ color: "var(--neg)" }}>{debits > 0 ? formatBRL(debits) : "—"}</div>
-              <div className="kpi-delta muted">{transactions.length} lançamento{transactions.length !== 1 ? "s" : ""}</div>
+              {(() => { const n = transactions.length + manualBeExpense.length; return (
+              <div className="kpi-delta muted">{n} lançamento{n !== 1 ? "s" : ""}</div>
+              ); })()}
             </div>
             <div className="card kpi">
               <div className="kpi-label"><OrcaIcon name="wallet" size={13} style={{ color: "var(--accent)" }} />Saldo projetado</div>

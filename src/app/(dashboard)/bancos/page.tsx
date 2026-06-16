@@ -7,6 +7,7 @@ import { Modal } from "@/components/ui/modal";
 import { PayToggle } from "@/components/ui/pay-toggle";
 import { BatchFeedbackContent } from "@/components/dashboard/batch-feedback-content";
 import { BANKS, CATEGORIES, categoriesFor, formatBRL } from "@/lib/constants";
+import { splitInstallments } from "@/lib/money";
 import { fetchWithTimeoutAndRetry } from "@/lib/network";
 import type { BankKey, CategoryKey } from "@/lib/constants";
 
@@ -793,7 +794,12 @@ function BillForm({ bank, cutoffDay, dueDay, month, year, onSave, onCancel }: {
   const hasCutoff = !!(cutoffDay && dueDay);
   const amountVal = parseFloat(amount) || 0;
   const effectiveParcelas = Math.max(1, parcelas);
-  const baseEach = inputMode === "total" ? amountVal / effectiveParcelas : amountVal;
+  // Quando o valor informado é o total, distribui em parcelas somando exatamente
+  // o total (resto de centavos nas primeiras). Quando é "valor de cada parcela",
+  // repete o mesmo valor.
+  const parcelValues = inputMode === "total"
+    ? splitInstallments(amountVal, effectiveParcelas)
+    : Array.from({ length: effectiveParcelas }, () => amountVal);
   const baseDate = parseLocalDate(date);
 
   // Com data de corte: usa data de faturamento (dia de vencimento do ciclo correto)
@@ -812,7 +818,7 @@ function BillForm({ bank, cutoffDay, dueDay, month, year, onSave, onCancel }: {
       const groupId = effectiveParcelas > 1 ? `grp-${Date.now()}` : null;
       const records = months.map((m, i) => ({
         description: effectiveParcelas > 1 ? `${description} ${i + 1}/${effectiveParcelas}` : description,
-        amount: baseEach,
+        amount: parcelValues[i],
         type: txType,
         expenseType: "BANK_BILL",
         category: selectedCat,
@@ -926,7 +932,7 @@ function BillForm({ bank, cutoffDay, dueDay, month, year, onSave, onCancel }: {
               {amountVal > 0 && effectiveParcelas > 1 && (
                 <div className="row-meta" style={{ marginTop: 4 }}>
                   {inputMode === "total"
-                    ? <>{effectiveParcelas}x de <b className="num">{formatBRL(amountVal / effectiveParcelas)}</b></>
+                    ? <>{effectiveParcelas}x de <b className="num">{formatBRL(parcelValues[0])}</b></>
                     : <>Total: <b className="num">{formatBRL(amountVal * effectiveParcelas)}</b></>}
                   {" · "}até {months[months.length - 1]?.label}
                 </div>
