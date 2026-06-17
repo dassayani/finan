@@ -16,6 +16,7 @@ const updateSchema = z.object({
   type: z.string().min(1).optional(),
   institution: bankKeySchema.nullable().optional(),
   value: z.number().positive().optional(),
+  costBasis: z.number().nonnegative().nullable().optional(),
   returnRate: z.number().nullable().optional(),
   monthlyAdd: z.number().nullable().optional(),
 });
@@ -47,6 +48,15 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   });
   if (result.count === 0) return NextResponse.json({ error: "Não encontrado" }, { status: 404 });
 
+  // Quando o valor muda, grava um ponto na série temporal (snapshot) — preserva o
+  // histórico em vez de sobrescrever. Best-effort: nunca derruba o update.
+  const valueChanged = !!before && parsed.data.value !== undefined && parsed.data.value !== Number(before.value);
+  if (valueChanged) {
+    await prisma.investmentSnapshot.create({
+      data: { investmentId: id, userId: uid, value: parsed.data.value! },
+    });
+  }
+
   await recordAudit({
     userId: uid, action: "UPDATE", entity: "investment", entityId: id,
     before: before ? { ...before, value: Number(before.value) } : null,
@@ -54,8 +64,22 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     ip: ipFromRequest(req),
   });
 
-  const inv = await prisma.investment.findFirst({ where: { id, userId: uid } });
-  return NextResponse.json(inv);
+  const inv = await prisma.investment.findFirst({
+    where: { id, userId: uid },
+    include: { snapshots: { orderBy: { date: "asc" } } },
+  });
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const i = inv as any;
+  return NextResponse.json(inv ? {
+    id: i.id, name: i.name, type: i.type, institution: i.institution,
+    value: Number(i.value),
+    costBasis: i.costBasis !== null && i.costBasis !== undefined ? Number(i.costBasis) : null,
+    returnRate: i.returnRate !== null && i.returnRate !== undefined ? Number(i.returnRate) : null,
+    monthlyAdd: i.monthlyAdd !== null && i.monthlyAdd !== undefined ? Number(i.monthlyAdd) : null,
+    createdAt: i.createdAt,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    snapshots: (i.snapshots ?? []).map((s: any) => ({ date: s.date, value: Number(s.value) })),
+  } : null);
 }
 
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {

@@ -10,6 +10,7 @@ const { prismaMock, getServerSessionMock } = vi.hoisted(() => ({
       updateMany: vi.fn(),
       deleteMany: vi.fn(),
     },
+    investmentSnapshot: { create: vi.fn() },
     auditLog: { create: vi.fn() },
   },
   getServerSessionMock: vi.fn(),
@@ -76,6 +77,21 @@ describe("investments PUT — mass-assignment hardening", () => {
     expect(res.status).toBe(404);
     expect(prismaMock.investment.updateMany.mock.calls[0][0].where).toEqual({ id: "inv-someone-else", userId: "user-1" });
   });
+
+  it("records a value-change snapshot when the value changes", async () => {
+    prismaMock.investment.findFirst.mockResolvedValue({ value: "1000" });
+    prismaMock.investment.updateMany.mockResolvedValue({ count: 1 });
+    await PUT(jsonReq({ value: 1200 }), ctx("inv-1"));
+    expect(prismaMock.investmentSnapshot.create).toHaveBeenCalledTimes(1);
+    expect(prismaMock.investmentSnapshot.create.mock.calls[0][0].data).toMatchObject({ investmentId: "inv-1", userId: "user-1", value: 1200 });
+  });
+
+  it("does NOT snapshot when the value is unchanged", async () => {
+    prismaMock.investment.findFirst.mockResolvedValue({ value: "1000" });
+    prismaMock.investment.updateMany.mockResolvedValue({ count: 1 });
+    await PUT(jsonReq({ value: 1000, name: "novo nome" }), ctx("inv-1"));
+    expect(prismaMock.investmentSnapshot.create).not.toHaveBeenCalled();
+  });
 });
 
 describe("investments DELETE", () => {
@@ -102,6 +118,20 @@ describe("investments POST — validation", () => {
     const res = await POST(jsonReq({ name: "Tesouro", type: "tesouro", value: 1000, institution: "nubank" }));
     expect(res.status).toBe(201);
     expect(prismaMock.investment.create.mock.calls[0][0].data.userId).toBe("user-1");
+  });
+
+  it("defaults costBasis to value and creates an initial snapshot", async () => {
+    prismaMock.investment.create.mockResolvedValue({ id: "inv-1" });
+    await POST(jsonReq({ name: "Tesouro", type: "Renda Fixa", value: 1000 }));
+    const data = prismaMock.investment.create.mock.calls[0][0].data;
+    expect(data.costBasis).toBe(1000);
+    expect(data.snapshots.create).toMatchObject({ userId: "user-1", value: 1000 });
+  });
+
+  it("keeps an explicit costBasis distinct from value", async () => {
+    prismaMock.investment.create.mockResolvedValue({ id: "inv-1" });
+    await POST(jsonReq({ name: "FII", type: "FII", value: 1200, costBasis: 1000 }));
+    expect(prismaMock.investment.create.mock.calls[0][0].data.costBasis).toBe(1000);
   });
 
   it("records a CREATE audit entry", async () => {

@@ -250,14 +250,35 @@ model Investment {
   type        String
   institution BankKey?
   value       Decimal   @db.Decimal(12, 2)
+  // Custo / aporte acumulado — base para ganho real (atual − custo). Nullable para
+  // dados legados; quando ausente, o ganho é tratado como 0 (sem custo conhecido).
+  costBasis   Decimal?  @db.Decimal(12, 2) @map("cost_basis")
   returnRate  Decimal?  @db.Decimal(6, 4) @map("return_rate")
   monthlyAdd  Decimal?  @db.Decimal(12, 2) @map("monthly_add")
   createdAt   DateTime  @default(now()) @map("created_at")
   updatedAt   DateTime  @updatedAt @map("updated_at")
   user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  snapshots   InvestmentSnapshot[]
 
   @@index([userId])
   @@map("investments")
+}
+
+// Série temporal do valor de cada ativo. Append-only: cada edição de `value`
+// (ou snapshot manual) grava um ponto, permitindo a curva de evolução do
+// patrimônio sem sobrescrever o histórico. Cascade só via Investment (que já
+// cascateia de User) — userId é escalar para filtrar por dono sem nova FK em User.
+model InvestmentSnapshot {
+  id           String     @id @default(cuid())
+  investmentId String     @map("investment_id")
+  userId       String     @map("user_id")
+  value        Decimal    @db.Decimal(12, 2)
+  date         DateTime   @default(now())
+  investment   Investment @relation(fields: [investmentId], references: [id], onDelete: Cascade)
+
+  @@index([investmentId, date])
+  @@index([userId])
+  @@map("investment_snapshots")
 }
 
 model CustomBank {

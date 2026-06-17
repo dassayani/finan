@@ -42,6 +42,24 @@ export function categoriesFor(type: 'income' | 'expense') {
     .filter(([, c]) => c.applicableTo === type || c.applicableTo === 'both');
 }
 
+// Classes de investimento — fonte única de verdade (rótulo + cor). A UI e
+// qualquer agregação devem usar isto em vez de listas locais. O schema guarda
+// `type` como String livre; manter aqui evita divergência entre tela e dados.
+export const INVESTMENT_TYPES = {
+  'Renda Fixa': { color: '#15543D' },
+  'FII':        { color: '#EC7000' },
+  'Ações':      { color: '#820AD1' },
+  'Cripto':     { color: '#F7931A' },
+  'Outro':      { color: '#6b7280' },
+} as const;
+
+export type InvestmentType = keyof typeof INVESTMENT_TYPES;
+
+/** Cor de uma classe de investimento, com fallback para tipos legados. */
+export function investmentTypeColor(type: string): string {
+  return (INVESTMENT_TYPES as Record<string, { color: string }>)[type]?.color ?? '#6b7280';
+}
+
 export function formatBRL(value: number, { sign = false } = {}): string {
   if (value === null || value === undefined) return '—';
   const abs = Math.abs(value).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
