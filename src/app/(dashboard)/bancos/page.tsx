@@ -783,9 +783,9 @@ function BillCsvModal({ onImport, onClose }: { onImport: (rows: ImportRow[]) => 
                 <button onClick={() => setRows(r => r.map(x => ({ ...x, include: false })))} style={{ fontSize: 11, fontWeight: 700, color: "var(--neg)", background: "none", border: "none", cursor: "pointer" }}>Nenhum</button>
               </div>
             </div>
-            <div style={{ maxHeight: 280, overflowY: "auto", border: "1px solid var(--line)", borderRadius: "var(--r-md)" }}>
+            <div style={{ maxHeight: 280, overflowY: "auto", overflowX: "auto", border: "1px solid var(--line)", borderRadius: "var(--r-md)" }}>
               {rows.map((row, i) => (
-                <div key={row.id} style={{ display: "grid", gridTemplateColumns: "28px 90px 1fr 110px 80px 68px", gap: 8, alignItems: "center", padding: "6px 12px", borderBottom: i < rows.length - 1 ? "1px solid var(--line-2)" : "none", background: row.include ? "var(--surface)" : "var(--surface-2)", opacity: row.include ? 1 : 0.5 }}>
+                <div key={row.id} style={{ display: "grid", gridTemplateColumns: "28px 90px 1fr 110px 80px 68px", gap: 8, alignItems: "center", padding: "6px 12px", borderBottom: i < rows.length - 1 ? "1px solid var(--line-2)" : "none", background: row.include ? "var(--surface)" : "var(--surface-2)", opacity: row.include ? 1 : 0.5, minWidth: 460 }}>
                   <input type="checkbox" checked={row.include} onChange={e => updateRow(row.id, { include: e.target.checked })} style={{ cursor: "pointer", width: 15, height: 15, accentColor: "var(--accent)" }} />
                   <input className="orça-input" type="date" value={row.date} onChange={e => updateRow(row.id, { date: e.target.value })} style={{ fontSize: 11, padding: "4px 6px" }} />
                   <input className="orça-input" value={row.description} onChange={e => updateRow(row.id, { description: e.target.value })} style={{ fontSize: 12, padding: "4px 8px" }} />
@@ -1157,11 +1157,11 @@ function BankExtractCsvModal({ bankName, fees, onImport, onClose }: {
               </div>
             </div>
 
-            <div style={{ maxHeight: 280, overflowY: "auto", border: "1px solid var(--line)", borderRadius: "var(--r-md)" }}>
+            <div style={{ maxHeight: 280, overflowY: "auto", overflowX: "auto", border: "1px solid var(--line)", borderRadius: "var(--r-md)" }}>
               {rows.map((row, i) => {
                 const isFee = isFeeRow(row, fees);
                 return (
-                  <div key={row.id} style={{ display: "grid", gridTemplateColumns: "28px 56px 1fr 108px 80px 72px", gap: 8, alignItems: "center", padding: "6px 12px", borderBottom: i < rows.length - 1 ? "1px solid var(--line-2)" : "none", background: isFee ? "var(--warn-soft, #fef9ec)" : row.include ? "var(--surface)" : "var(--surface-2)", opacity: row.include ? 1 : 0.55 }}>
+                  <div key={row.id} style={{ display: "grid", gridTemplateColumns: "28px 56px 1fr 108px 80px 72px", gap: 8, alignItems: "center", padding: "6px 12px", borderBottom: i < rows.length - 1 ? "1px solid var(--line-2)" : "none", background: isFee ? "var(--warn-soft, #fef9ec)" : row.include ? "var(--surface)" : "var(--surface-2)", opacity: row.include ? 1 : 0.55, minWidth: 416 }}>
                     <input type="checkbox" checked={row.include} onChange={e => updateRow(row.id, { include: e.target.checked })} style={{ cursor: "pointer", width: 15, height: 15, accentColor: "var(--accent)" }} />
                     <span style={{ fontSize: 11, fontWeight: 700, color: "var(--ink-3)", textAlign: "center" }}>{monthLabel(row.date)}</span>
                     <input className="orça-input" value={row.description} onChange={e => updateRow(row.id, { description: e.target.value })} style={{ fontSize: 12, padding: "4px 8px" }} />

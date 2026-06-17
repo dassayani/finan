@@ -231,6 +231,9 @@ body.sidebar-collapsed .sidebar-offset { margin-left: 64px; }
 .field-row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .field-row-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
 
+/* Lista de cards em 2 colunas (vira 1 no mobile — ver breakpoint abaixo) */
+.cols-2 { column-count: 2; column-gap: 16px; }
+
 /* ── Mobile breakpoint (≤ 767px) ── */
 @media (max-width: 767px) {
   /* Sidebar: icon-only, toggle escondido */
@@ -288,4 +291,7 @@ body.sidebar-collapsed .sidebar-offset { margin-left: 64px; }
   /* Formulários: grids multi-col → 1-col */
   .field-row-2,
   .field-row-3 { grid-template-columns: 1fr !important; }
+
+  /* Listas de cards em 2 colunas → 1 coluna */
+  .cols-2 { column-count: 1; }
 }

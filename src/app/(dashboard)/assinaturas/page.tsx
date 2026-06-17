@@ -358,7 +358,7 @@ function SubSection({ title, subs, onEdit, onDelete, onToggleMember, onMemberHis
   return (
     <div style={{ marginBottom: 24 }}>
       <div className="section-label" style={{ marginBottom: 12 }}>{title}</div>
-      <div style={{ columnCount: 2, columnGap: 16 }}>
+      <div className="cols-2">
         {subs.map(s => (
           <SubCard key={s.id} s={s}
             onEdit={() => onEdit(s)}
