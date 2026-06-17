@@ -1,5 +1,8 @@
 npm run test
 
-if [ -n "$RUN_REAL_DB_TESTS" ] || [ -n "$TEST_DIRECT_URL" ] || [ -n "$DATABASE_URL" ]; then
+# Roda os testes real-db quando há acesso a banco: via env (CI) ou via .env local
+# (DIRECT_URL/DATABASE_URL). O setup do vitest carrega o .env no processo.
+if [ -n "$RUN_REAL_DB_TESTS" ] || [ -n "$TEST_DIRECT_URL" ] || [ -n "$DATABASE_URL" ] \
+  || grep -qE '^(DIRECT_URL|DATABASE_URL)=' .env 2>/dev/null; then
   npm run test:realdb
 fi
