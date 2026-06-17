@@ -41,13 +41,17 @@ export async function GET() {
   const session = await getServerSession(authOptions);
   if (!session?.user?.id) return NextResponse.json({ error: "Não autorizado" }, { status: 401 });
 
-  const investments = await prisma.investment.findMany({
-    where: { userId: session.user.id },
-    orderBy: { value: "desc" },
-    include: { snapshots: { orderBy: { date: "asc" } } },
-  });
-
-  return NextResponse.json(investments.map(serializeInvestment));
+  try {
+    const investments = await prisma.investment.findMany({
+      where: { userId: session.user.id },
+      orderBy: { value: "desc" },
+      include: { snapshots: { orderBy: { date: "asc" } } },
+    });
+    return NextResponse.json(investments.map(serializeInvestment));
+  } catch (error) {
+    console.error("[investments GET]", error);
+    return NextResponse.json({ error: "Erro interno" }, { status: 500 });
+  }
 }
 
 export async function POST(req: NextRequest) {

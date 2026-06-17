@@ -85,9 +85,16 @@ export default function InvestimentosPage() {
 
   const fetchInvs = useCallback(async () => {
     setLoading(true);
-    const res = await fetch("/api/investments");
-    setInvestments(await res.json());
-    setLoading(false);
+    try {
+      const res = await fetch("/api/investments");
+      if (!res.ok) { setInvestments([]); return; }
+      const data = await res.json().catch(() => []);
+      setInvestments(Array.isArray(data) ? data : []);
+    } catch {
+      setInvestments([]);
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   useEffect(() => { fetchInvs(); }, [fetchInvs]);
