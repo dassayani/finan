@@ -94,8 +94,18 @@ function ReadOnlySection({ title, badge, color, items, total, paidVal, variant =
 
 // ─── Compact bank card ────────────────────────────────────────────────────────
 
-function CompactBankCard({ id, saldoInicial, entradas, saidas, investTotal, bankBillTotal, feesTotal }: {
-  id: BankKey;
+/** Cor de texto contrastante para badge de banco customizado. */
+function textOnColor(hex: string): string {
+  if (!/^#[0-9a-fA-F]{6}$/.test(hex)) return "#FFFFFF";
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  return (r * 299 + g * 587 + b * 114) / 1000 > 128 ? "#1B1B16" : "#FFFFFF";
+}
+
+function CompactBankCard({ id, custom, saldoInicial, entradas, saidas, investTotal, bankBillTotal, feesTotal }: {
+  id: string;
+  custom?: { name: string; short: string; color: string };
   saldoInicial: number | null;
   entradas: number;
   saidas: number;
@@ -103,7 +113,7 @@ function CompactBankCard({ id, saldoInicial, entradas, saidas, investTotal, bank
   bankBillTotal: number;
   feesTotal: number;
 }) {
-  const bank = BANKS[id];
+  const name = custom ? custom.name : BANKS[id as BankKey].name;
   // investTotal entries (categoria reserva) are shown but excluded from saldo — matches BankCard in bancos/page.tsx
   const saldoTotal = (saldoInicial ?? 0) + entradas - saidas - bankBillTotal - feesTotal;
 
@@ -118,8 +128,10 @@ function CompactBankCard({ id, saldoInicial, entradas, saidas, investTotal, bank
     <div className="card" style={{ overflow: "hidden", breakInside: "avoid" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "9px 14px", background: "var(--surface-2)", borderBottom: "1px solid var(--line-2)" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <BankBadge id={id} size={22} />
-          <span style={{ fontWeight: 700, fontSize: 13 }}>{bank.name}</span>
+          {custom
+            ? <div className="bank-badge" style={{ background: custom.color, color: textOnColor(custom.color), width: 22, height: 22, borderRadius: 22 * 0.29, fontSize: 22 * 0.37 }}>{custom.short}</div>
+            : <BankBadge id={id as BankKey} size={22} />}
+          <span style={{ fontWeight: 700, fontSize: 13 }}>{name}</span>
         </div>
         <span className="num" style={{ fontWeight: 800, fontSize: 13, color: saldoTotal >= 0 ? "var(--pos)" : "var(--neg)" }}>
           {formatBRL(saldoTotal)}
@@ -156,6 +168,7 @@ export default function DashboardPage() {
   const {
     monthDash, transactions, incomes: rawIncomes, bankFees,
     bankBalances, bankEntriesList, prevBankClosing, salaryEffective,
+    customBanks, customBalances, customFees,
     loading: mensalLoading,
   } = useDashboardMensal(month, year, excludedCats, view === "mensal");
 
@@ -299,6 +312,14 @@ export default function DashboardPage() {
     bankEstornos.some(t => t.bank === id) ||
     bankBalances.some(b => b.bank === id) ||
     bankEntriesList.some(e => e.bank === id && e.bank in BANKS)
+  );
+
+  // Bancos customizados ATIVOS no mês: têm lançamento, taxa ativa ou saldo no mês.
+  // Mesma regra dos bancos padrão — banco com movimento aparece no dashboard.
+  const activeCustomBanks = customBanks.filter(cb =>
+    bankEntriesList.some(e => e.customBankId === cb.id) ||
+    customFees.some(f => f.customBankId === cb.id && f.active) ||
+    customBalances.some(b => b.customBankId === cb.id)
   );
 
   const debits  = fixosTotal + varsTotal + Object.values(banksTotals).reduce((a, v) => a + v, 0) + manualBeExpenseOther;
@@ -568,7 +589,7 @@ export default function DashboardPage() {
               />
 
               {/* Bancos compact */}
-              {allBankIds.length > 0 && (
+              {(allBankIds.length > 0 || activeCustomBanks.length > 0) && (
                 <>
                   <div className="section-label" style={{ margin: "14px 0 10px" }}>Bancos</div>
                   <div className="r-grid-banks">
@@ -589,6 +610,26 @@ export default function DashboardPage() {
                           entradas={entradas} saidas={saidas}
                           investTotal={investTotal}
                           bankBillTotal={bankBillTotal}
+                          feesTotal={feesTotal}
+                        />
+                      );
+                    })}
+                    {activeCustomBanks.map(cb => {
+                      const balRecord = customBalances.find(b => b.customBankId === cb.id);
+                      const storedBal = balRecord ? Number(balRecord.balance) : null;
+                      const saldoInicial = storedBal ?? (prevBankClosing[cb.id] ?? null);
+                      const entradas    = bankEntriesList.filter(e => e.customBankId === cb.id && e.type === "INCOME").reduce((a, e) => a + Number(e.amount), 0);
+                      const saidas      = bankEntriesList.filter(e => e.customBankId === cb.id && e.type === "EXPENSE" && e.category !== "reserva").reduce((a, e) => a + Number(e.amount), 0);
+                      const investTotal = bankEntriesList.filter(e => e.customBankId === cb.id && e.type === "EXPENSE" && e.category === "reserva").reduce((a, e) => a + Number(e.amount), 0);
+                      const feesTotal   = customFees.filter(f => f.customBankId === cb.id && f.active).reduce((a, f) => a + Number(f.amount), 0);
+                      return (
+                        <CompactBankCard
+                          key={cb.id} id={cb.id}
+                          custom={{ name: cb.name, short: cb.short, color: cb.color }}
+                          saldoInicial={saldoInicial}
+                          entradas={entradas} saidas={saidas}
+                          investTotal={investTotal}
+                          bankBillTotal={0}
                           feesTotal={feesTotal}
                         />
                       );

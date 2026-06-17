@@ -15,6 +15,10 @@ interface SalaryEffective {
   contractEnded: boolean;
 }
 
+export interface DashCustomBank { id: string; name: string; short: string; color: string; }
+export interface DashCustomBalance { customBankId: string; month: number; year: number; balance: number | string; }
+export interface DashCustomFee { customBankId: string; amount: number | string; active: boolean; }
+
 interface State {
   monthDash: MonthDashData | null;
   transactions: DashTransaction[];
@@ -23,6 +27,9 @@ interface State {
   bankBalances: DashBankBalance[];
   bankEntriesList: DashBankEntry[];
   prevBankClosing: Record<string, number | null>;
+  customBanks: DashCustomBank[];
+  customBalances: DashCustomBalance[];
+  customFees: DashCustomFee[];
   salaryEffective: SalaryEffective | null;
   loading: boolean;
 }
@@ -35,6 +42,9 @@ const EMPTY: State = {
   bankBalances: [],
   bankEntriesList: [],
   prevBankClosing: {},
+  customBanks: [],
+  customBalances: [],
+  customFees: [],
   salaryEffective: null,
   loading: true,
 };
@@ -57,7 +67,7 @@ export function useDashboardMensal(
       // Ensure subscription bill transactions exist for all active months before querying
       await fetch("/api/subscriptions/backfill", { method: "POST" }).catch(() => {});
 
-      const [dashRes, txRes, incRes, feesRes, balRes, entRes, closingRes, salRes] = await Promise.all([
+      const [dashRes, txRes, incRes, feesRes, balRes, entRes, closingRes, salRes, cbRes, cbBalRes, cbFeeRes] = await Promise.all([
         fetch(`/api/dashboard?year=${year}&month=${month}${exclParam}`),
         fetch(`/api/transactions?month=${month}&year=${year}&type=EXPENSE`),
         fetch(`/api/credits?month=${month}&year=${year}`),
@@ -66,6 +76,9 @@ export function useDashboardMensal(
         fetch(`/api/bank-entries?month=${month}&year=${year}`),
         fetch(`/api/bank-closing-balance?month=${prevM}&year=${prevY}`),
         fetch(`/api/salary?month=${month}&year=${year}`),
+        fetch("/api/custom-banks"),
+        fetch(`/api/custom-bank-balances?month=${month}&year=${year}`),
+        fetch("/api/custom-bank-fees"),
       ]);
 
       let salaryEffective: SalaryEffective | null = null;
@@ -86,6 +99,9 @@ export function useDashboardMensal(
         bankBalances:    balRes.ok     ? await balRes.json()     : [],
         bankEntriesList: entRes.ok     ? await entRes.json()     : [],
         prevBankClosing: closingRes.ok ? await closingRes.json() : {},
+        customBanks:     cbRes.ok      ? await cbRes.json()      : [],
+        customBalances:  cbBalRes.ok   ? await cbBalRes.json()   : [],
+        customFees:      cbFeeRes.ok   ? await cbFeeRes.json()   : [],
         salaryEffective,
         loading: false,
       });

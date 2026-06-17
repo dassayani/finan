@@ -31,6 +31,7 @@ export interface DashBankBalance {
 export interface DashBankEntry {
   id: string;
   bank: string | null;
+  customBankId: string | null;
   description: string;
   amount: number;
   type: "INCOME" | "EXPENSE";
