@@ -33,6 +33,13 @@ const GROUP_TX = {
   groupId: "grp-123", installments: 6, installmentIndex: 2,
 };
 
+// Despesa mensal recorrente (repetir até data X): tem groupId mas NÃO tem
+// installments. Era o caso que não oferecia "Excluir todos os meses".
+const RECUR_TX = {
+  ...FIXED_TX, id: "t4", description: "Internet",
+  groupId: "grp-999", installments: null, installmentIndex: null,
+};
+
 function makeFetch(transactions: unknown[] = []) {
   return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input.toString();
@@ -335,6 +342,44 @@ describe("DebitoPage", () => {
         return (init as RequestInit)?.method === "DELETE" && url.includes("/api/transactions/t3");
       });
       expect(singleDelete).toBe(true);
+    });
+  });
+
+  // ── Recorrência mensal SEM installments (o caso reportado) ────────────────────
+
+  it("offers 'Excluir todos os meses' for a monthly recurring expense (no installments)", async () => {
+    vi.stubGlobal("fetch", makeFetch([RECUR_TX]));
+    render(<DebitoPage />);
+    await waitFor(() => screen.getByText("Internet"));
+
+    fireEvent.click(findTrashButton());
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Só este mês/i })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /Excluir todos os meses/i })).toBeInTheDocument();
+    });
+  });
+
+  it("deletes transactions AND mirror bank-entries by groupId for a recurring expense", async () => {
+    const fetchMock = makeFetch([RECUR_TX]);
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<DebitoPage />);
+    await waitFor(() => screen.getByText("Internet"));
+
+    fireEvent.click(findTrashButton());
+    await waitFor(() => screen.getByRole("button", { name: /Excluir todos os meses/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Excluir todos os meses/i }));
+
+    await waitFor(() => {
+      const calls = fetchMock.mock.calls.filter(([input, init]) =>
+        (init as RequestInit)?.method === "DELETE" &&
+        (typeof input === "string" ? input : input.toString()).includes("groupId=grp-999")
+      );
+      const urls = calls.map(([input]) => (typeof input === "string" ? input : input.toString()));
+      // limpa os dois ledgers
+      expect(urls.some(u => u.includes("/api/transactions"))).toBe(true);
+      expect(urls.some(u => u.includes("/api/bank-entries"))).toBe(true);
     });
   });
 });

@@ -469,7 +469,11 @@ export default function DebitoPage() {
 
   async function confirmDeleteGroup() {
     if (!deleteTx?.groupId) return;
-    await fetch(`/api/transactions?groupId=${deleteTx.groupId}`, { method: "DELETE" });
+    const gid = encodeURIComponent(deleteTx.groupId);
+    // Remove as transações E os bank-entries espelho do grupo (a recorrência cria
+    // ambos com o mesmo groupId) — senão o saldo do banco fica com órfãos.
+    await fetch(`/api/transactions?groupId=${gid}`, { method: "DELETE" });
+    await fetch(`/api/bank-entries?groupId=${gid}`, { method: "DELETE" }).catch(() => {});
     setDeleteTx(null);
     fetchTx();
   }
@@ -493,27 +497,29 @@ export default function DebitoPage() {
 
       <Modal open={!!deleteTx} onClose={() => setDeleteTx(null)} title="Excluir lançamento" width={420}>
         {deleteTx && (() => {
-          const isInstallment = deleteTx.groupId && deleteTx.installments && deleteTx.installments > 1;
+          // Grupo do usuário: recorrência mensal (grp-) ou compra parcelada (installments>1).
+          // Restrito a esses para não excluir em massa grupos de sistema (empréstimo, assinatura).
+          const isGroup = !!deleteTx.groupId && (deleteTx.groupId.startsWith("grp-") || (deleteTx.installments ?? 0) > 1);
           return (
             <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
               <p style={{ margin: 0, fontSize: 14, color: "var(--ink-2)", lineHeight: 1.5 }}>
                 Excluir <b style={{ color: "var(--ink)" }}>&quot;{deleteTx.description}&quot;</b>?
               </p>
-              {isInstallment && (
+              {isGroup && (
                 <div style={{ padding: "12px 14px", background: "var(--warn-soft)", borderRadius: "var(--r-sm)", fontSize: 13, color: "var(--warn)", fontWeight: 600, lineHeight: 1.5 }}>
                   Este lançamento faz parte de uma recorrência. Excluir só este mês ou todos os meses?
                 </div>
               )}
               <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", flexWrap: "wrap" }}>
                 <button className="btn btn-ghost" onClick={() => setDeleteTx(null)}>Cancelar</button>
-                {isInstallment && (
+                {isGroup && (
                   <button className="btn btn-ghost" style={{ color: "var(--neg)" }} onClick={confirmDeleteOne}>
                     Só este mês
                   </button>
                 )}
                 <button className="btn btn-primary" style={{ background: "var(--neg)" }}
-                  onClick={isInstallment ? confirmDeleteGroup : confirmDeleteOne}>
-                  {isInstallment ? "Excluir todos" : "Excluir"}
+                  onClick={isGroup ? confirmDeleteGroup : confirmDeleteOne}>
+                  {isGroup ? "Excluir todos os meses" : "Excluir"}
                 </button>
               </div>
             </div>
