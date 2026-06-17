@@ -185,10 +185,16 @@ export async function DELETE(req: NextRequest) {
   const descriptionBase  = searchParams.get("descriptionBase");
   const bank             = searchParams.get("bank");
   const customBankId     = searchParams.get("customBankId");
+  const month            = searchParams.get("month");
+  const year             = searchParams.get("year");
   const uid              = session.user.id;
 
   if (groupId) {
-    await prisma.bankEntry.deleteMany({ where: { groupId, userId: uid } });
+    // month+year opcionais: deleta só aquele mês do grupo (ex.: "excluir só este
+    // mês" de uma recorrência); sem eles, deleta o grupo inteiro.
+    const where: Record<string, unknown> = { groupId, userId: uid };
+    if (month && year) { where.month = Number(month); where.year = Number(year); }
+    await prisma.bankEntry.deleteMany({ where });
   } else if (descriptionBase) {
     // Fallback para entradas sem groupId:
     // - parcelas: "nome 2/5" → startsWith("nome ")

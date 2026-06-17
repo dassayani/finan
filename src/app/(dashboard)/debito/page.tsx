@@ -463,6 +463,13 @@ export default function DebitoPage() {
   async function confirmDeleteOne() {
     if (!deleteTx) return;
     await fetch(`/api/transactions/${deleteTx.id}`, { method: "DELETE" });
+    // Se faz parte de um grupo, remove também o bank-entry espelho DAQUELE mês
+    // (não o grupo inteiro) — senão o saldo do banco fica com órfão deste mês.
+    if (deleteTx.groupId && deleteTx.date) {
+      const d = parseLocalDate(deleteTx.date);
+      const gid = encodeURIComponent(deleteTx.groupId);
+      await fetch(`/api/bank-entries?groupId=${gid}&month=${d.getMonth() + 1}&year=${d.getFullYear()}`, { method: "DELETE" }).catch(() => {});
+    }
     setDeleteTx(null);
     fetchTx();
   }

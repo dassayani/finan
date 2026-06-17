@@ -360,6 +360,31 @@ describe("DebitoPage", () => {
     });
   });
 
+  it("'Só este mês' deletes only that month's bank-entry (groupId + month + year), not the whole group", async () => {
+    const fetchMock = makeFetch([RECUR_TX]); // date 2026-06-01
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<DebitoPage />);
+    await waitFor(() => screen.getByText("Internet"));
+
+    fireEvent.click(findTrashButton());
+    await waitFor(() => screen.getByRole("button", { name: /Só este mês/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Só este mês/i }));
+
+    await waitFor(() => {
+      const calls = fetchMock.mock.calls
+        .filter(([, init]) => (init as RequestInit)?.method === "DELETE")
+        .map(([input]) => (typeof input === "string" ? input : input.toString()));
+      // transação única por id
+      expect(calls.some(u => u.includes("/api/transactions/t4"))).toBe(true);
+      // bank-entry só daquele mês: groupId + month + year (NÃO o grupo inteiro)
+      const be = calls.find(u => u.includes("/api/bank-entries") && u.includes("groupId=grp-999"));
+      expect(be).toBeTruthy();
+      expect(be).toContain("month=6");
+      expect(be).toContain("year=2026");
+    });
+  });
+
   it("deletes transactions AND mirror bank-entries by groupId for a recurring expense", async () => {
     const fetchMock = makeFetch([RECUR_TX]);
     vi.stubGlobal("fetch", fetchMock);
